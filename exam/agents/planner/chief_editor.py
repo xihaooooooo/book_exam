@@ -134,29 +134,51 @@ task_id | 章 | 节 | 知识点评述(10-20字) | 题型 | 难度 | 分值
 
 def _parse_task_list(report: str) -> list[dict]:
     """从主编输出中解析任务清单。"""
+    import re
     tasks = []
     for line in report.split("\n"):
         line = line.strip()
         if not line or line.startswith("#") or line.startswith("task_id"):
             continue
-        # 跳过分隔线和无效行
+        # 跳过分隔线
         chars = set(line.replace("|", "").strip())
-        if chars <= {"-", "─", "━", "═", " ", "─", "━"}:
+        if chars <= {"-", "─", "━", "═", " "}:
             continue
         parts = [p.strip() for p in line.split("|")]
-        if len(parts) >= 6:
-            try:
-                tasks.append({
-                    "id": len(tasks) + 1,
-                    "chapter": parts[1] if len(parts) > 1 else "",
-                    "section": parts[2] if len(parts) > 2 else "",
-                    "topic": parts[3] if len(parts) > 3 else "",
-                    "question_type": _normalize_type(parts[4]) if len(parts) > 4 else "choice",
-                    "difficulty": _normalize_difficulty(parts[5]) if len(parts) > 5 else "medium",
-                    "score": int(parts[6]) if len(parts) > 6 and parts[6].isdigit() else 5,
-                })
-            except (ValueError, IndexError):
-                continue
+        if len(parts) < 6:
+            continue
+
+        chapter_raw = parts[1] if len(parts) > 1 else ""
+        section_raw = parts[2] if len(parts) > 2 else ""
+
+        # 过滤垃圾行：section 含中文量词/括号明显是汇总行
+        if re.search(r"[道题分）\)]", section_raw):
+            continue
+        # section 不能只是章节名（如 "第1章"）
+        if re.match(r"^第\d+章$", section_raw):
+            continue
+        # section 不能为空或过短
+        if len(section_raw) < 3:
+            continue
+        # chapter 不能含 markdown 或模板关键词
+        if re.search(r"\*\*|task_id|合计|总计", chapter_raw):
+            continue
+        # chapter 不能是难度标签
+        if chapter_raw in ("容易", "简单", "中等", "困难", "难", "易", "中"):
+            continue
+
+        try:
+            tasks.append({
+                "id": len(tasks) + 1,
+                "chapter": chapter_raw,
+                "section": section_raw,
+                "topic": parts[3] if len(parts) > 3 else "",
+                "question_type": _normalize_type(parts[4]) if len(parts) > 4 else "choice",
+                "difficulty": _normalize_difficulty(parts[5]) if len(parts) > 5 else "medium",
+                "score": int(parts[6]) if len(parts) > 6 and parts[6].isdigit() else 5,
+            })
+        except (ValueError, IndexError):
+            continue
     return tasks
 
 

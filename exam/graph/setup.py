@@ -12,6 +12,7 @@ from exam.agents import (
     create_short_answer_generator,
     create_quality_reviewer,
 )
+from exam.agents.reviewers.final_editor import create_final_editor
 from exam.agents.planner.chief_editor import peek_section
 from exam.agents.utils.agent_states import AgentState
 from exam.agents.utils.agent_utils import (
@@ -66,8 +67,10 @@ class GraphSetup:
             ["generation_pipeline"],
         )
 
-        # 全部流水线完成 → 输出
-        workflow.add_edge("generation_pipeline", END)
+        # 全部流水线完成 → 终审排版
+        workflow.add_node("final_editor", create_final_editor(self.config))
+        workflow.add_edge("generation_pipeline", "final_editor")
+        workflow.add_edge("final_editor", END)
 
         return workflow
 

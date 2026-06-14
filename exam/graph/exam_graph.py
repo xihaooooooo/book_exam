@@ -32,15 +32,15 @@ class ExamGraph:
         os.makedirs(self.config.get("results_dir", "./output"), exist_ok=True)
         os.makedirs(self.config.get("data_cache_dir", "./cache"), exist_ok=True)
 
-    def propagate(self, mock_sections: dict = None, toc: list[dict] = None):
+    def propagate(self, db_path: str = None, toc: list[dict] = None):
         """运行完整流程。
         Args:
-            mock_sections: mock 章节文本（demo 用）
+            db_path: SQLite 数据库路径
             toc: 目录结构
         Returns:
             (final_state, all_questions)
         """
-        init_sections(mock_sections)
+        init_sections(db_path=db_path)
 
         graph_setup = GraphSetup(config=self.config)
         workflow = graph_setup.setup_graph()
@@ -85,14 +85,16 @@ class ExamGraph:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         saved = []
 
-        exam_plan = state.get("exam_plan", {})
         all_questions = state.get("all_questions", [])
 
         if all_questions:
-            # Markdown 试卷
-            md_path = os.path.join(results_dir, f"exam_{timestamp}.md")
-            self._export_markdown(all_questions, exam_plan, md_path)
-            saved.append(md_path)
+            # Markdown 试卷（由终审排版师生成）
+            final_exam = state.get("final_exam", "")
+            if final_exam:
+                md_path = os.path.join(results_dir, f"exam_{timestamp}.md")
+                with open(md_path, "w", encoding="utf-8") as f:
+                    f.write(final_exam)
+                saved.append(md_path)
 
             # JSON 数据
             json_path = os.path.join(results_dir, f"questions_{timestamp}.json")
@@ -102,51 +104,3 @@ class ExamGraph:
 
         return saved
 
-    def _export_markdown(self, questions: list, exam_plan: dict, path: str):
-        """导出为 Markdown 试卷"""
-        lines = ["# 试卷\n"]
-
-        # 按题型分组
-        choices = [q for q in questions if q.get("question_type") == "choice"]
-        fill_blanks = [q for q in questions if q.get("question_type") == "fill_blank"]
-        short_answers = [q for q in questions if q.get("question_type") == "short_answer"]
-
-        num = 1
-
-        if choices:
-            lines.append("## 一、选择题\n")
-            for q in choices:
-                lines.append(f"**{num}.** ({q.get('difficulty', '')}) {q.get('stem', '')}")
-                for opt in q.get("options", []):
-                    lines.append(f"  {opt}")
-                lines.append("")
-                num += 1
-
-        if fill_blanks:
-            lines.append("## 二、填空题\n")
-            for q in fill_blanks:
-                lines.append(f"**{num}.** ({q.get('difficulty', '')}) {q.get('stem', '')}")
-                lines.append("")
-                num += 1
-
-        if short_answers:
-            lines.append("## 三、简答题\n")
-            for q in short_answers:
-                lines.append(f"**{num}.** ({q.get('difficulty', '')}) {q.get('stem', '')}")
-                lines.append("")
-                num += 1
-
-        # 答案页
-        lines.append("\n---\n")
-        lines.append("# 答案\n")
-
-        num = 1
-        for q in questions:
-            lines.append(f"**{num}.** {q.get('correct_answer', '')}")
-            if q.get("explanation"):
-                lines.append(f"  > {q.get('explanation', '')}")
-            lines.append("")
-            num += 1
-
-        with open(path, "w", encoding="utf-8") as f:
-            f.write("\n".join(lines))

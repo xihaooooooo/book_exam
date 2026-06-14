@@ -27,11 +27,14 @@ def _apply_env_overrides(config: dict) -> dict:
     return config
 
 
+_PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+
 DEFAULT_CONFIG = _apply_env_overrides({
     "llm_provider": "deepseek",
     "deep_think_llm": "deepseek-v4-flash",
     "quick_think_llm": "deepseek-v4-flash",
     "temperature": None,
-    "results_dir": os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")), "output"),
-    "data_cache_dir": os.path.join(_BOOK_TO_EXAM_HOME, "cache"),
+    "results_dir": os.path.join(_PROJECT_ROOT, "output"),
+    "data_cache_dir": os.path.join(_PROJECT_ROOT, "cache"),
+    "db_path": os.path.join(_PROJECT_ROOT, "cache", "sections.db"),
 })

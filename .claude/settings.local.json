@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git push *)",
+      "Bash(cd /d D:\\\\trae\\\\book_exam)",
+      "Bash(python main.py)",
+      "Bash(pip list *)",
+      "Bash(python *)"
+    ]
+  }
+}
