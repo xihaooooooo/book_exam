@@ -65,6 +65,57 @@ def create_chief_editor(config: dict = None):
 
         tools = [peek_section, get_section_text, get_surrounding_context, search_keyword]
 
+        # ── 往年试卷分析指令 ──
+        analysis_instruction = ""
+        analysis_report = state.get("analysis_report")
+        if analysis_report:
+            agg = analysis_report.get("aggregated", {})
+            exams = analysis_report.get("exams", [])
+
+            # 考点频率 top8
+            topic_lines = []
+            for t, c in sorted(agg.get("topic_frequency", {}).items(), key=lambda x: -x[1])[:8]:
+                topic_lines.append(f"  - {t}: {c} 次")
+
+            # 题型分布
+            type_dist = agg.get("type_distribution", {})
+
+            # 难度分布
+            diff_dist = agg.get("difficulty_distribution", {})
+
+            total_q = agg.get("total_questions", 0)
+
+            # 往年样例（每份卷取 2 道）
+            samples = []
+            for exam in exams:
+                for q in exam.get("questions", [])[:2]:
+                    samples.append(f"  - [{q.get('question_type','')}/{q.get('difficulty','')}] {q.get('stem','')[:150]}")
+
+            analysis_instruction = f"""
+## 往年试卷分析数据
+
+以下是往年真题的统计数据，请在规划时尽量贴合这些指标：
+
+### 高频考点（按频次排列）
+{chr(10).join(topic_lines)}
+
+### 往年题型分布
+{type_dist}
+
+### 往年难度分布
+{diff_dist}
+
+### 往年题目样例（参考风格）
+{chr(10).join(samples)}
+
+### 参考
+- 目标总题数：{total_q} 道
+- 用 search_keyword 搜索高频考点关键词，定位到教材对应章节
+- 题型和难度比例尽量贴合往年分布
+- 题目风格参考上述样例
+
+"""
+
         # ── focus 指令 ──
         focus_instruction = ""
         if focus:
@@ -82,6 +133,10 @@ def create_chief_editor(config: dict = None):
 6. **只在命中的章节范围内出题，不要扩展到其他章节**
 
 """
+
+        # 如果提供了往年分析但未手动指定题数，自动设为往年题数
+        if target_count == 0 and analysis_report:
+            target_count = analysis_report.get("aggregated", {}).get("total_questions", 0) or 0
 
         # ── 题数指令 ──
         count_instruction = ""
@@ -106,14 +161,13 @@ def create_chief_editor(config: dict = None):
 - 纯介绍性/背景性章节（如"概述"、"小结"、"本章回顾"）可以跳过
 - 如果某节的标题太泛无法判断，用 peek_section 预览前几段确认
 """
+            + analysis_instruction
             + focus_instruction +
             """
 ### 2. 题型分配
 - 选择题：适合考定义、辨析、对比（如"A和B的区别"、"以下哪种说法正确"）
 - 填空题：适合考关键词、方法名、参数名（如"用___方法在列表末尾添加元素"）
 - 简答题：适合考理解、流程描述、分析对比（如"简述sort()和sorted()的区别"）
-
-题型比例建议：选择题约50%，填空题约25%，简答题约25%
 """
             + types_instruction +
             """
@@ -122,7 +176,6 @@ def create_chief_editor(config: dict = None):
 - 中等：方法对比、概念辨析、常见场景分析
 - 困难：综合应用、跨章节知识关联、易混淆细节
 
-难度比例建议：简单30%、中等40%、困难30%
 
 ### 4. 章节覆盖
 - 确保重要章节都有题目覆盖
@@ -187,9 +240,20 @@ task_id | 章 | 节 | 知识点评述(10-20字) | 题型 | 难度
         else:
             tasks = []
 
+        # 难度目标比例：优先用往年数据，否则用默认 3:4:3
+        diff_ratio = (3, 4, 3)
+        if analysis_report:
+            diff_dist = analysis_report.get("aggregated", {}).get("difficulty_distribution", {})
+            if diff_dist:
+                e = diff_dist.get("easy", 0)
+                m = diff_dist.get("medium", 0)
+                h = diff_dist.get("hard", 0)
+                if e + m + h > 0:
+                    diff_ratio = (e, m, h)
+
         exam_plan = {
             "tasks": tasks,
-            "difficulty_ratio": (3, 4, 3),
+            "difficulty_ratio": diff_ratio,
             "total_score": 100,
         }
 

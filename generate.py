@@ -1,11 +1,13 @@
 """生成试卷：从 SQLite 读取教材数据，运行出题流水线。
 
 用法：
-    python generate.py                    # 从 SQLite 读数据出题
-    python generate.py --db cache/my.db   # 指定数据库路径
+    python generate.py                                    # 从 SQLite 读数据出题
+    python generate.py --db cache/my.db                   # 指定数据库路径
+    python generate.py --from-analysis analysis/report.json  # 基于往年试卷分析出题
 
 前置步骤：
-    python parse.py book.pdf --mineru-token TOKEN  # 先解析 PDF
+    python parse.py book.pdf --mineru-token TOKEN         # 第一步：解析 PDF
+    python analyze_exam.py --dir ./past_papers/           # 第二步（可选）：分析往年试卷
 """
 
 import argparse
@@ -58,6 +60,8 @@ def main():
                         help="总题数（默认 6-12 自动适配）")
     parser.add_argument("--types", default=None,
                         help="题型限制 choice/fill_blank/short_answer（逗号分隔）")
+    parser.add_argument("--from-analysis", default=None,
+                        help="往年试卷分析报告 JSON 路径（如 analysis/report_xxx.json）")
     args = parser.parse_args()
 
     config = DEFAULT_CONFIG.copy()
@@ -86,12 +90,17 @@ def main():
     toc = _build_toc_from_db(db_path)
     print(f"  解析出 {len(toc)} 章")
 
+    if args.from_analysis and not os.path.exists(args.from_analysis):
+        print(f"错误：分析报告 {args.from_analysis} 不存在")
+        sys.exit(1)
+
     exam = ExamGraph(config=config, debug=True)
     final_state, questions = exam.propagate(
         db_path=db_path, toc=toc,
         focus=args.focus or "",
         target_count=args.count,
         allowed_types=args.types or "",
+        analysis_report_path=args.from_analysis or "",
     )
 
     print("\n" + "=" * 60)

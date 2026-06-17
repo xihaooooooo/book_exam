@@ -1,15 +1,18 @@
 {
   "permissions": {
     "allow": [
-      "Bash(git push *)",
-      "Bash(cd /d D:\\\\trae\\\\book_exam)",
-      "Bash(python main.py)",
-      "Bash(pip list *)",
+      "Bash(git *)",
       "Bash(python *)",
-      "Bash(npm list *)",
-      "Bash(npm install *)",
-      "Bash(node generate_report.js)",
-      "Bash(powershell *)"
+      "Bash(npm *)",
+      "Bash(node *)",
+      "Bash(pip *)",
+      "Bash(ls *)",
+      "Bash(powershell *)",
+      "Read(*)",
+      "Glob(*)",
+      "Grep(*)",
+      "WebSearch(*)",
+      "WebFetch(*)"
     ]
   }
 }

@@ -5,6 +5,7 @@ import os
 import sys
 import logging
 from datetime import datetime
+from pathlib import Path
 
 # Windows 终端中文编码修复
 if sys.platform == "win32":
@@ -33,19 +34,31 @@ class ExamGraph:
         os.makedirs(self.config.get("data_cache_dir", "./cache"), exist_ok=True)
 
     def propagate(self, db_path: str = None, toc: list[dict] = None,
-                  focus: str = "", target_count: int = 0, allowed_types: str = ""):
+                  focus: str = "", target_count: int = 0, allowed_types: str = "",
+                  analysis_report_path: str = ""):
         """运行完整流程。"""
         init_sections(db_path=db_path)
+
+        # 加载分析报告
+        analysis_report = None
+        if analysis_report_path and os.path.exists(analysis_report_path):
+            with open(analysis_report_path, "r", encoding="utf-8") as f:
+                analysis_report = json.load(f)
+            total_q = analysis_report.get("aggregated", {}).get("total_questions", 0)
+            print(f"已加载往年试卷分析: {analysis_report_path}")
+            print(f"  往年总题数: {total_q}")
 
         graph_setup = GraphSetup(config=self.config)
         workflow = graph_setup.setup_graph()
         graph = workflow.compile()
 
-        initial_state = self._create_initial_state(toc, focus, target_count, allowed_types)
+        initial_state = self._create_initial_state(toc, focus, target_count, allowed_types, analysis_report)
 
         print(f"ExamGraph 开始运行, 共 {sum(len(ch.get('sections', [])) for ch in (toc or []))} 节")
         if focus:
             print(f"  考试重点: {focus}")
+        if analysis_report:
+            print(f"  出题策略: 基于往年试卷分析")
         print("请耐心等待所有题目并发生成...")
 
         final_state = graph.invoke(initial_state, {"recursion_limit": 500})
@@ -60,7 +73,8 @@ class ExamGraph:
         return final_state, all_questions
 
     def _create_initial_state(self, toc: list[dict], focus: str = "",
-                               target_count: int = 0, allowed_types: str = "") -> dict:
+                               target_count: int = 0, allowed_types: str = "",
+                               analysis_report: dict = None) -> dict:
         """创建初始 state"""
         return {
             "pdf_path": "",
@@ -69,6 +83,7 @@ class ExamGraph:
             "focus": focus,
             "target_count": target_count,
             "allowed_types": allowed_types,
+            "analysis_report": analysis_report,
             "current_task": None,
             "knowledge_point": "",
             "generated_question": None,

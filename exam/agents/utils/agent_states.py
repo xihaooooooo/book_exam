@@ -19,6 +19,9 @@ class AgentState(MessagesState):
     target_count: int
     allowed_types: str
 
+    # 往年试卷分析报告（--from-analysis 加载）
+    analysis_report: dict | None
+
     # 分支内变量（多分支并发写入，需要 reducer）
     current_task: Annotated[dict | None, _keep_first]
     knowledge_point: Annotated[str, _keep_first]
