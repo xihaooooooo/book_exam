@@ -25,7 +25,7 @@ def create_final_editor(config: dict = None):
 
         # 3. 排版
         title = _infer_title(toc, sorted_qs)
-        final_exam = _format_exam(title, sorted_qs, exam_plan)
+        final_exam = _format_exam(title, sorted_qs)
 
         return {
             "final_exam": final_exam,
@@ -142,16 +142,9 @@ def _infer_title(toc: list, questions: list) -> str:
     return "测试卷"
 
 
-def _format_exam(title: str, questions: list, exam_plan: dict) -> str:
+def _format_exam(title: str, questions: list) -> str:
     """排版为 Markdown 试卷。"""
     lines = [f"# {title}\n"]
-
-    # 统计信息
-    type_counts = {"choice": 0, "fill_blank": 0, "short_answer": 0}
-    for q in questions:
-        t = q.get("question_type", "short_answer")
-        type_counts[t] = type_counts.get(t, 0) + 1
-
 
     # 按题型分组
     groups = [
@@ -159,9 +152,6 @@ def _format_exam(title: str, questions: list, exam_plan: dict) -> str:
         ("二、填空题", "fill_blank", questions),
         ("三、简答题", "short_answer", questions),
     ]
-
-    # 计算分值
-    scores = _calc_scores(exam_plan, type_counts)
 
     answer_lines = ["\n---\n", "# 参考答案\n"]
     global_num = 1
@@ -171,9 +161,7 @@ def _format_exam(title: str, questions: list, exam_plan: dict) -> str:
         if not filtered:
             continue
 
-        per_score = scores[qtype]
-        section_total = per_score * len(filtered)
-        lines.append(f"## {section_title}（每题 {per_score} 分，共 {section_total} 分）\n")
+        lines.append(f"## {section_title}\n")
 
         answer_lines.append(f"## {section_title}\n")
 
@@ -199,28 +187,3 @@ def _format_exam(title: str, questions: list, exam_plan: dict) -> str:
     return "\n".join(lines)
 
 
-def _calc_scores(exam_plan: dict, type_counts: dict) -> dict:
-    """按题型权重分配分值。"""
-    total = exam_plan.get("total_score", 100)
-    # 权重：选择 3 : 填空 4 : 简答 7
-    weights = {"choice": 3, "fill_blank": 4, "short_answer": 7}
-    weighted_sum = sum(weights[t] * type_counts.get(t, 0) for t in weights)
-    if weighted_sum == 0:
-        return {"choice": 5, "fill_blank": 5, "short_answer": 10}
-
-    raw = {t: total * weights[t] * type_counts.get(t, 0) / weighted_sum
-           for t in weights}
-    per_question = {t: max(1, round(raw[t] / type_counts[t]))
-                    if type_counts[t] else 0
-                    for t in weights}
-
-    # 调整使总分尽量接近 total
-    actual_total = sum(per_question[t] * type_counts.get(t, 0) for t in weights)
-    diff = total - actual_total
-    # 把差值加到题数最多的题型上
-    if diff != 0:
-        max_type = max(weights, key=lambda t: type_counts.get(t, 0))
-        if type_counts.get(max_type, 0):
-            per_question[max_type] += diff // type_counts[max_type]
-
-    return per_question

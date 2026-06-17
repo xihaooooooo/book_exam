@@ -14,6 +14,11 @@ class AgentState(MessagesState):
     toc: list[dict]
     exam_plan: dict | None
 
+    # 用户参数
+    focus: str
+    target_count: int
+    allowed_types: str
+
     # 分支内变量（多分支并发写入，需要 reducer）
     current_task: Annotated[dict | None, _keep_first]
     knowledge_point: Annotated[str, _keep_first]

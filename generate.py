@@ -52,6 +52,12 @@ def main():
     parser = argparse.ArgumentParser(description="Book-to-Exam 试卷生成器")
     parser.add_argument("--db", default=None,
                         help="SQLite 数据库路径（默认 cache/sections.db）")
+    parser.add_argument("--focus", default=None,
+                        help="考试重点（关键词或自然语言，逗号分隔多个考点）")
+    parser.add_argument("--count", type=int, default=0,
+                        help="总题数（默认 6-12 自动适配）")
+    parser.add_argument("--types", default=None,
+                        help="题型限制 choice/fill_blank/short_answer（逗号分隔）")
     args = parser.parse_args()
 
     config = DEFAULT_CONFIG.copy()
@@ -81,7 +87,12 @@ def main():
     print(f"  解析出 {len(toc)} 章")
 
     exam = ExamGraph(config=config, debug=True)
-    final_state, questions = exam.propagate(db_path=db_path, toc=toc)
+    final_state, questions = exam.propagate(
+        db_path=db_path, toc=toc,
+        focus=args.focus or "",
+        target_count=args.count,
+        allowed_types=args.types or "",
+    )
 
     print("\n" + "=" * 60)
     print(f"生成完成！共 {len(questions)} 道题")

@@ -32,32 +32,26 @@ class ExamGraph:
         os.makedirs(self.config.get("results_dir", "./output"), exist_ok=True)
         os.makedirs(self.config.get("data_cache_dir", "./cache"), exist_ok=True)
 
-    def propagate(self, db_path: str = None, toc: list[dict] = None):
-        """运行完整流程。
-        Args:
-            db_path: SQLite 数据库路径
-            toc: 目录结构
-        Returns:
-            (final_state, all_questions)
-        """
+    def propagate(self, db_path: str = None, toc: list[dict] = None,
+                  focus: str = "", target_count: int = 0, allowed_types: str = ""):
+        """运行完整流程。"""
         init_sections(db_path=db_path)
 
         graph_setup = GraphSetup(config=self.config)
         workflow = graph_setup.setup_graph()
         graph = workflow.compile()
 
-        # 创建初始状态
-        initial_state = self._create_initial_state(toc)
+        initial_state = self._create_initial_state(toc, focus, target_count, allowed_types)
 
-        task_count = sum(len(t.get("tasks", [])) for t in [{}] if t)  # placeholder
         print(f"ExamGraph 开始运行, 共 {sum(len(ch.get('sections', [])) for ch in (toc or []))} 节")
+        if focus:
+            print(f"  考试重点: {focus}")
         print("请耐心等待所有题目并发生成...")
 
         final_state = graph.invoke(initial_state, {"recursion_limit": 500})
 
         all_questions = final_state.get("all_questions", [])
 
-        # 保存结果
         saved_files = self._save_results(final_state)
         print(f"生成完成！共 {len(all_questions)} 道题")
         for f in saved_files:
@@ -65,12 +59,16 @@ class ExamGraph:
 
         return final_state, all_questions
 
-    def _create_initial_state(self, toc: list[dict]) -> dict:
+    def _create_initial_state(self, toc: list[dict], focus: str = "",
+                               target_count: int = 0, allowed_types: str = "") -> dict:
         """创建初始 state"""
         return {
             "pdf_path": "",
             "toc": toc or [],
             "exam_plan": None,
+            "focus": focus,
+            "target_count": target_count,
+            "allowed_types": allowed_types,
             "current_task": None,
             "knowledge_point": "",
             "generated_question": None,

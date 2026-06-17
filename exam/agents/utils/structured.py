@@ -28,12 +28,10 @@ def invoke_structured(llm, schema_cls, messages):
         }
 
     # 追加 JSON 输出格式提示
+    example_json = json.dumps(_make_example(schema_cls), ensure_ascii=False, indent=2)
     format_hint = (
-        f"\n\n请严格按照以下 JSON 格式输出纯 JSON（不要包裹在 markdown 代码块中），"
-        f"所有字段名和枚举值必须用英文：\n"
-        f"```\n{json.dumps(_make_example(schema_cls), ensure_ascii=False, indent=2)}\n```"
-        f"\n注意：question_type 字段只能是 'choice'、'fill_blank' 或 'short_answer'。"
-        f"直接输出 JSON 本身，不要任何其他文字。"
+        f"\n\n直接输出以下格式的 JSON，"
+        f"不要用 ``` 包裹，不要先写任何说明文字：\n{example_json}"
     )
 
     # 把格式提示加到 system message 里
@@ -87,8 +85,20 @@ def _make_example(schema_cls) -> dict:
     """生成一个示例 JSON"""
     example = {}
     from pydantic import BaseModel
+    import typing
+
     for field_name, field_info in schema_cls.model_fields.items():
-        desc = field_info.description or field_name
-        example[field_name] = f"<{desc}>"
+        annotation = field_info.annotation
+        # 处理 list 类型：展开泛型子类型
+        if hasattr(annotation, "__origin__") and annotation.__origin__ is list:
+            args = typing.get_args(annotation)
+            if args and issubclass(args[0], BaseModel):
+                example[field_name] = [_make_example(args[0])]
+            else:
+                example[field_name] = [f"<{field_info.description or field_name}>"]
+        elif isinstance(annotation, type) and issubclass(annotation, BaseModel):
+            example[field_name] = _make_example(annotation)
+        else:
+            example[field_name] = f"<{field_info.description or field_name}>"
     return example
 

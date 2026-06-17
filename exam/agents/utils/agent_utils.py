@@ -1,5 +1,6 @@
 import os
 import sqlite3
+import threading
 from pathlib import Path
 from langchain_core.tools import tool
 from langchain_core.messages import HumanMessage, RemoveMessage
@@ -9,8 +10,6 @@ from exam.config import DEFAULT_CONFIG
 
 
 # ── 数据库 ──
-
-import threading
 
 _db_path: str | None = None
 
@@ -69,9 +68,9 @@ def get_section_text(section_id: str) -> str:
         db.close()
         return row[0]
 
-    # 模糊匹配
+    # 模糊匹配（跳过空文本的父级标题）
     row = db.execute(
-        "SELECT id, text FROM sections WHERE id LIKE ? LIMIT 1",
+        "SELECT id, text FROM sections WHERE id LIKE ? AND text != '' ORDER BY id LIMIT 1",
         (f"{section_id}%",)
     ).fetchone()
     if row and row[1]:
@@ -111,33 +110,26 @@ def get_surrounding_context(section_id: str, paragraphs: int = 3) -> str:
 
 @tool
 def search_keyword(keyword: str) -> str:
-    """全书搜索关键词，找到包含该词的所有段落及所在章节。
+    """全书全文搜索（FTS5），支持多词查询。
     Args:
-        keyword: 要搜索的关键词
+        keyword: 搜索词，如 "任务就绪表" 或 "prio 就绪表"
     """
     db = _connect()
-    rows = db.execute(
-        "SELECT id, text FROM sections WHERE text IS NOT NULL AND text LIKE ? LIMIT 10",
-        (f"%{keyword}%",)
-    ).fetchall()
-
-    if not rows:
+    try:
+        rows = db.execute(
+            """SELECT id, snippet(sections_fts, 1, '', '', '...', 40)
+               FROM sections_fts WHERE sections_fts MATCH ? LIMIT 10""",
+            (keyword,)
+        ).fetchall()
+    except Exception:
         db.close()
         return f"未找到与 '{keyword}' 相关的内容"
 
-    matches = []
-    for section_id, text in rows:
-        lines = text.split("\n")
-        for line in lines:
-            if keyword.lower() in line.lower() and len(line.strip()) > 10:
-                matches.append(f"[{section_id}] {line.strip()[:200]}")
-                if len(matches) >= 10:
-                    break
-        if len(matches) >= 10:
-            break
-
     db.close()
-    return "\n".join(matches) if matches else f"未找到与 '{keyword}' 相关的内容"
+
+    if not rows:
+        return f"未找到与 '{keyword}' 相关的内容"
+    return "\n".join(f"[{r[0]}] {r[1]}" for r in rows)
 
 
 # ── 消息清理节点 ──

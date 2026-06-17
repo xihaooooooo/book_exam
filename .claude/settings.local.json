@@ -5,7 +5,11 @@
       "Bash(cd /d D:\\\\trae\\\\book_exam)",
       "Bash(python main.py)",
       "Bash(pip list *)",
-      "Bash(python *)"
+      "Bash(python *)",
+      "Bash(npm list *)",
+      "Bash(npm install *)",
+      "Bash(node generate_report.js)",
+      "Bash(powershell *)"
     ]
   }
 }

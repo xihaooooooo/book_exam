@@ -288,10 +288,25 @@ class PdfParser:
                 "VALUES (?,?,?,?,'done')",
                 (sec_id, chapter, title, text)
             )
+        # 删除空文本的父级标题（正文在子节里）
+        deleted = conn.execute("DELETE FROM sections WHERE text = ''").rowcount
+
+        # 建 FTS5 全文索引
+        conn.execute("DROP TABLE IF EXISTS sections_fts")
+        conn.execute("CREATE VIRTUAL TABLE sections_fts USING fts5(id, text)")
+        conn.execute("INSERT INTO sections_fts SELECT id, text FROM sections WHERE text != ''")
         conn.commit()
         conn.close()
 
-        print(f"[MinerU] 已写入 {len(section_texts)} 节正文")
+        if deleted:
+            for ch in toc:
+                ch["sections"] = [
+                    s for s in ch["sections"]
+                    if s["id"] in section_texts and section_texts[s["id"]][2].strip()
+                ]
+            toc = [ch for ch in toc if ch["sections"]]
+
+        print(f"[MinerU] 已写入 {len(section_texts)} 节（{deleted} 个空标题已清理，FTS5 索引已建）")
         return toc
 
     def _parse_markdown_to_sections(self, md_text: str) -> tuple[list, dict]:

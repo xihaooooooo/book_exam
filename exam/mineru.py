@@ -126,12 +126,19 @@ class MinerUClient:
         return None
 
     def _download_markdown(self, zip_url: str) -> str:
-        """下载 ZIP 并提取 full.md。"""
-        res = requests.get(zip_url)
-        res.raise_for_status()
+        """下载 ZIP 并提取 full.md（最多重试 3 次）。"""
+        for attempt in range(3):
+            try:
+                res = requests.get(zip_url, timeout=30)
+                res.raise_for_status()
+                break
+            except requests.RequestException as e:
+                if attempt == 2:
+                    raise
+                print(f"    下载失败（{e}），重试...")
+                time.sleep(3)
 
         with zipfile.ZipFile(io.BytesIO(res.content)) as zf:
-            # 找 full.md 或 *_full.md
             for name in zf.namelist():
                 if name.endswith("full.md"):
                     return zf.read(name).decode("utf-8")
