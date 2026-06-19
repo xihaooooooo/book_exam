@@ -35,4 +35,8 @@ class ConditionalLogic:
             return "fill_blank_generator"
         elif q_type == "short_answer":
             return "short_answer_generator"
+        elif q_type == "code_fill":
+            return "code_fill_generator"
+        elif q_type == "comprehensive":
+            return "comprehensive_generator"
         return "choice_generator"

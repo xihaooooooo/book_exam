@@ -10,6 +10,8 @@ class QuestionType(str, Enum):
     CHOICE = "choice"
     FILL_BLANK = "fill_blank"
     SHORT_ANSWER = "short_answer"
+    CODE_FILL = "code_fill"
+    COMPREHENSIVE = "comprehensive"
 
 
 class Difficulty(str, Enum):
@@ -39,6 +41,20 @@ class FillBlankQuestion(BaseModel):
 class ShortAnswerQuestion(BaseModel):
     """简答题"""
     stem: str = Field(description="具体明确的问题描述")
+    correct_answer: str = Field(description="参考答案，分要点列出")
+    explanation: str = Field(description="评分要点和各要点分值")
+
+
+class CodeFillQuestion(BaseModel):
+    """代码填空题"""
+    stem: str = Field(description="题干，含代码上下文，用 ___ 表示空缺")
+    correct_answer: str = Field(description="空缺处应填入的代码")
+    explanation: str = Field(description="解析，说明该段代码的逻辑和考点")
+
+
+class ComprehensiveQuestion(BaseModel):
+    """综合题"""
+    stem: str = Field(description="完整题目描述，可能含代码、图表等")
     correct_answer: str = Field(description="参考答案，分要点列出")
     explanation: str = Field(description="评分要点和各要点分值")
 

@@ -10,6 +10,8 @@ from exam.agents import (
     create_choice_generator,
     create_fill_blank_generator,
     create_short_answer_generator,
+    create_code_fill_generator,
+    create_comprehensive_generator,
     create_quality_reviewer,
 )
 from exam.agents.reviewers.final_editor import create_final_editor
@@ -108,6 +110,8 @@ class GraphSetup:
         subgraph.add_node("choice_generator", create_choice_generator(self.config))
         subgraph.add_node("fill_blank_generator", create_fill_blank_generator(self.config))
         subgraph.add_node("short_answer_generator", create_short_answer_generator(self.config))
+        subgraph.add_node("code_fill_generator", create_code_fill_generator(self.config))
+        subgraph.add_node("comprehensive_generator", create_comprehensive_generator(self.config))
 
         subgraph.add_node("quality_reviewer", create_quality_reviewer(self.config))
 
@@ -130,13 +134,17 @@ class GraphSetup:
                 "choice_generator": "choice_generator",
                 "fill_blank_generator": "fill_blank_generator",
                 "short_answer_generator": "short_answer_generator",
+                "code_fill_generator": "code_fill_generator",
+                "comprehensive_generator": "comprehensive_generator",
             },
         )
 
-        # 三种生成器 → 质检
+        # 五种生成器 → 质检
         subgraph.add_edge("choice_generator", "quality_reviewer")
         subgraph.add_edge("fill_blank_generator", "quality_reviewer")
         subgraph.add_edge("short_answer_generator", "quality_reviewer")
+        subgraph.add_edge("code_fill_generator", "quality_reviewer")
+        subgraph.add_edge("comprehensive_generator", "quality_reviewer")
 
         # 质检 → END
         subgraph.add_edge("quality_reviewer", END)

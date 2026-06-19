@@ -3,7 +3,7 @@
 from langchain_core.prompts import ChatPromptTemplate
 from exam.agents.utils.agent_utils import create_llm_client
 from exam.agents.utils.structured import invoke_structured
-from exam.agents.schemas import ChoiceQuestion, FillBlankQuestion, ShortAnswerQuestion
+from exam.agents.schemas import ChoiceQuestion, FillBlankQuestion, ShortAnswerQuestion, CodeFillQuestion, ComprehensiveQuestion
 
 
 def create_choice_generator(config: dict = None):
@@ -157,3 +157,100 @@ def create_short_answer_generator(config: dict = None):
         }
 
     return short_answer_generator_node
+
+
+def create_code_fill_generator(config: dict = None):
+    """代码填空题生成器 —— 结构化输出"""
+
+    def code_fill_generator_node(state):
+        knowledge_point = state.get("knowledge_point", "")
+        task = state.get("current_task", {})
+        difficulty = task.get("difficulty", "medium")
+
+        prompt = ChatPromptTemplate.from_messages([
+            (
+                "system",
+                "你是代码填空题出题专家。根据知识点描述，生成一道高质量的代码填空题。"
+                "\n\n要求："
+                "\n- 题干包含完整的代码上下文（函数/代码段）"
+                "\n- 从代码中选取 1-2 个关键的逻辑位置进行挖空"
+                "\n- 挖掉的内容应是理解算法/逻辑的关键（函数名、参数、条件表达式等）"
+                "\n- 答案唯一，不能有多种合理填法"
+                "\n- 用 ___ 表示空缺"
+                "\n- 附带解析，说明代码逻辑和考点"
+                "\n\n目标难度：{difficulty}"
+            ),
+            (
+                "user",
+                "请根据以下知识点生成一道代码填空题：\n\n{knowledge_point}"
+            ),
+        ])
+
+        prompt = prompt.partial(difficulty=difficulty)
+        prompt = prompt.partial(knowledge_point=knowledge_point)
+
+        llm = create_llm_client(config)
+        result = invoke_structured(llm, CodeFillQuestion, prompt.format_messages())
+
+        question = {
+            "question_type": "code_fill",
+            "difficulty": difficulty,
+            "source": task.get("section", ""),
+            "stem": result.stem,
+            "correct_answer": result.correct_answer,
+            "explanation": result.explanation,
+        }
+
+        return {
+            "generated_question": question,
+        }
+
+    return code_fill_generator_node
+
+
+def create_comprehensive_generator(config: dict = None):
+    """综合题生成器 —— 结构化输出"""
+
+    def comprehensive_generator_node(state):
+        knowledge_point = state.get("knowledge_point", "")
+        task = state.get("current_task", {})
+        difficulty = task.get("difficulty", "medium")
+
+        prompt = ChatPromptTemplate.from_messages([
+            (
+                "system",
+                "你是综合题出题专家。根据知识点描述，生成一道高质量的综合题。"
+                "\n\n要求："
+                "\n- 设问考查综合能力：代码分析、运行推演、方案设计、多知识点串联等"
+                "\n- 题干可以包含代码段、场景描述等"
+                "\n- 参考答案分要点列出，逻辑清晰"
+                "\n- 附带评分要点，说明各要点分值"
+                "\n- 不能太泛（如'谈谈对X的理解'），要有明确的考查目标"
+                "\n\n目标难度：{difficulty}"
+            ),
+            (
+                "user",
+                "请根据以下知识点生成一道综合题：\n\n{knowledge_point}"
+            ),
+        ])
+
+        prompt = prompt.partial(difficulty=difficulty)
+        prompt = prompt.partial(knowledge_point=knowledge_point)
+
+        llm = create_llm_client(config)
+        result = invoke_structured(llm, ComprehensiveQuestion, prompt.format_messages())
+
+        question = {
+            "question_type": "comprehensive",
+            "difficulty": difficulty,
+            "source": task.get("section", ""),
+            "stem": result.stem,
+            "correct_answer": result.correct_answer,
+            "explanation": result.explanation,
+        }
+
+        return {
+            "generated_question": question,
+        }
+
+    return comprehensive_generator_node

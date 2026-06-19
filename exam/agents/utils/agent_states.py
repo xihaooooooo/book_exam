@@ -14,6 +14,9 @@ class AgentState(MessagesState):
     toc: list[dict]
     exam_plan: dict | None
 
+    # 出题模式
+    mode: str
+
     # 用户参数
     focus: str
     target_count: int

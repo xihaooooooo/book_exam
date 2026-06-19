@@ -132,6 +132,56 @@ def search_keyword(keyword: str) -> str:
     return "\n".join(f"[{r[0]}] {r[1]}" for r in rows)
 
 
+# ── 错题库 ──
+
+_mistakes_db_path: str | None = None
+
+
+def init_mistakes_db(db_path: str = "cache/mistakes.db"):
+    """初始化错题库（建表，幂等）。"""
+    global _mistakes_db_path
+    _mistakes_db_path = db_path
+    db = sqlite3.connect(db_path)
+    db.execute("PRAGMA journal_mode=WAL")
+    db.executescript("""
+        CREATE TABLE IF NOT EXISTS students (
+            id TEXT PRIMARY KEY,
+            name TEXT
+        );
+        CREATE TABLE IF NOT EXISTS mistakes (
+            id INTEGER PRIMARY KEY,
+            student_id TEXT,
+            exam_title TEXT,
+            stem TEXT,
+            wrong_answer TEXT,
+            correct_answer TEXT,
+            section_id TEXT,
+            topic TEXT,
+            error_pattern TEXT,
+            created_at TEXT DEFAULT (datetime('now')),
+            UNIQUE(student_id, exam_title, stem)
+        );
+    """)
+    db.commit()
+    db.close()
+
+
+def get_weak_sections(student_id: str) -> list[dict]:
+    """返回该学生按章节聚合的弱点统计，按错误次数降序。"""
+    db = sqlite3.connect(_mistakes_db_path or "cache/mistakes.db")
+    rows = db.execute(
+        """SELECT section_id, topic, COUNT(*) as error_count
+           FROM mistakes WHERE student_id = ? AND section_id != ''
+           GROUP BY section_id ORDER BY error_count DESC""",
+        (student_id,)
+    ).fetchall()
+    db.close()
+    return [
+        {"section_id": r[0], "topic": r[1], "error_count": r[2]}
+        for r in rows
+    ]
+
+
 # ── 消息清理节点 ──
 
 def create_msg_clear_node(context_text: str):

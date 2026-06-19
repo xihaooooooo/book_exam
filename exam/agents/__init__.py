@@ -4,6 +4,8 @@ from exam.agents.generators.question_generator import (
     create_choice_generator,
     create_fill_blank_generator,
     create_short_answer_generator,
+    create_code_fill_generator,
+    create_comprehensive_generator,
 )
 from exam.agents.generators.quality_reviewer import create_quality_reviewer
 from exam.agents.reviewers.final_editor import create_final_editor

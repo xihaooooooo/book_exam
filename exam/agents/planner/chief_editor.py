@@ -65,6 +65,28 @@ def create_chief_editor(config: dict = None):
 
         tools = [peek_section, get_section_text, get_surrounding_context, search_keyword]
 
+        mode = state.get("mode", "exam")
+
+        # ── 策略指令（按 mode 区分选题偏好和难度策略）──
+        if mode == "diagnostic":
+            strategy_instruction = """
+### 0. 本次任务性质：诊断测评
+- 摸底学生对全书各章节的基础掌握情况
+- 有实质内容的章节尽量每章覆盖，不要整章跳过
+- 题目难度全部设为 easy
+- 题型限定选择题
+"""
+        elif mode == "practice":
+            strategy_instruction = """
+### 0. 本次任务性质：定向练习
+- 帮助学生补强薄弱章节
+- 弱点章节（练习重点中指定）多出题，约占总量 70%
+- 其余章节扫一遍（约占 30%），避免知识遗忘
+- 弱点章节难度从 easy 开始，可逐步升到 medium
+"""
+        else:
+            strategy_instruction = ""
+
         # ── 往年试卷分析指令 ──
         analysis_instruction = ""
         analysis_report = state.get("analysis_report")
@@ -119,7 +141,18 @@ def create_chief_editor(config: dict = None):
         # ── focus 指令 ──
         focus_instruction = ""
         if focus:
-            focus_instruction = f"""
+            if mode == "practice":
+                focus_instruction = f"""
+## 练习重点（系统根据错题库自动生成）
+
+以下章节学生错误率较高，请直接在这些章节出题：
+{focus}
+
+用 get_section_text 读取各节内容后规划出题。
+弱点章节约占 70%，其余章节扫一遍。
+"""
+            else:
+                focus_instruction = f"""
 ## 考试重点（用户指定）
 
 用户要求考试重点为：**{focus}**
@@ -151,6 +184,7 @@ def create_chief_editor(config: dict = None):
             types_instruction = f"\n题型限制：**只允许 {allowed_types}**，不出其他题型。\n"
 
         system_message = (
+            strategy_instruction +
             """你是一份教材的试卷主编。你收到一本书的目录结构，需要规划一份覆盖全书重点的试卷。
 
 你的工作：
@@ -168,6 +202,8 @@ def create_chief_editor(config: dict = None):
 - 选择题：适合考定义、辨析、对比（如"A和B的区别"、"以下哪种说法正确"）
 - 填空题：适合考关键词、方法名、参数名（如"用___方法在列表末尾添加元素"）
 - 简答题：适合考理解、流程描述、分析对比（如"简述sort()和sorted()的区别"）
+- 代码填空题：适合考源码理解、关键逻辑（给一段代码，挖掉关键位置让考生补全）
+- 综合题：适合考代码分析、运行推演、方案设计（可含多知识点串联）
 """
             + types_instruction +
             """
@@ -251,9 +287,22 @@ task_id | 章 | 节 | 知识点评述(10-20字) | 题型 | 难度
                 if e + m + h > 0:
                     diff_ratio = (e, m, h)
 
+        # 题型排版顺序：优先用往年试卷的实际题型出现顺序
+        type_order = None
+        if analysis_report:
+            seen = []
+            for exam in analysis_report.get("exams", []):
+                for q in exam.get("questions", []):
+                    t = q.get("question_type", "")
+                    if t and t not in seen:
+                        seen.append(t)
+            if seen:
+                type_order = {t: i for i, t in enumerate(seen)}
+
         exam_plan = {
             "tasks": tasks,
             "difficulty_ratio": diff_ratio,
+            "type_order": type_order,
             "total_score": 100,
         }
 
@@ -267,10 +316,15 @@ task_id | 章 | 节 | 知识点评述(10-20字) | 题型 | 难度
 
 def _normalize_type(t: str) -> str:
     t = t.lower()
+    # code_fill 必须在 fill_blank 之前检查，因为"代码填空"包含"填空"
+    if "代码" in t or "code_fill" in t:
+        return "code_fill"
     if "选择" in t or "choice" in t:
         return "choice"
     if "填空" in t or "fill" in t or "blank" in t:
         return "fill_blank"
+    if "综合" in t or "comprehensive" in t:
+        return "comprehensive"
     if "简答" in t or "short" in t or "问答" in t:
         return "short_answer"
     return "choice"

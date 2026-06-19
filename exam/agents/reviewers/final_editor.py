@@ -1,8 +1,9 @@
 """终审排版师：难度统计、排序、排版"""
 
-TYPE_ORDER = {"choice": 0, "fill_blank": 1, "short_answer": 2}
+DEFAULT_TYPE_ORDER = {"choice": 0, "fill_blank": 1, "short_answer": 2, "code_fill": 3, "comprehensive": 4}
 DIFF_ORDER = {"easy": 0, "medium": 1, "hard": 2}
-TYPE_LABELS = {"choice": "选择题", "fill_blank": "填空题", "short_answer": "简答题"}
+TYPE_LABELS = {"choice": "选择题", "fill_blank": "填空题", "short_answer": "简答题", "code_fill": "代码填空题", "comprehensive": "综合题"}
+CN_NUM = ["一", "二", "三", "四", "五", "六", "七", "八"]
 
 
 def create_final_editor(config: dict = None):
@@ -19,13 +20,17 @@ def create_final_editor(config: dict = None):
         stats = _difficulty_stats(questions, exam_plan)
         _print_stats(stats)
 
+        # 题型排版顺序：优先用往年试卷的实际顺序，否则默认
+        type_order = exam_plan.get("type_order") or DEFAULT_TYPE_ORDER
+
         # 2. 排序
         section_order = _build_section_order(toc)
-        sorted_qs = sorted(questions, key=lambda q: _sort_key(q, section_order))
+        sorted_qs = sorted(questions, key=lambda q: _sort_key(q, section_order, type_order))
 
         # 3. 排版
-        title = _infer_title(toc, sorted_qs)
-        final_exam = _format_exam(title, sorted_qs)
+        mode = state.get("mode", "exam")
+        title = _infer_title(toc, sorted_qs, mode)
+        final_exam = _format_exam(title, sorted_qs, type_order)
 
         return {
             "final_exam": final_exam,
@@ -45,13 +50,11 @@ def _build_section_order(toc: list) -> dict:
     return order
 
 
-def _sort_key(q: dict, section_order: dict):
+def _sort_key(q: dict, section_order: dict, type_order: dict):
     source = q.get("source", "") or ""
-    # 解析章节号，如 "2.1" → (2, 1)
     ch_num, sec_num = _parse_section(source)
-    # section_order 里找不到时用一个大数
     global_idx = section_order.get(source, 9999)
-    type_rank = TYPE_ORDER.get(q.get("question_type", "short_answer"), 2)
+    type_rank = type_order.get(q.get("question_type", "short_answer"), 99)
     diff_rank = DIFF_ORDER.get(q.get("difficulty", "medium"), 1)
     return (global_idx, ch_num, sec_num, type_rank, diff_rank)
 
@@ -113,7 +116,7 @@ def _print_stats(stats: dict):
             print(f"  ⚠ 难度偏差: {label} 实际 {stats['actual_pct'][level]}% vs 目标 {stats['target_pct'][level]}%（偏差 {diff}%）")
 
 
-def _infer_title(toc: list, questions: list) -> str:
+def _infer_title(toc: list, questions: list, mode: str = "exam") -> str:
     """从 TOC 和题目来源推断试卷标题。"""
     sources = set()
     for q in questions:
@@ -121,8 +124,11 @@ def _infer_title(toc: list, questions: list) -> str:
         if src:
             sources.add(src)
 
+    # 模式后缀
+    mode_suffix = {"diagnostic": "诊断测评卷", "practice": "定向练习卷"}.get(mode, "测试卷")
+
     if not sources:
-        return "测试卷"
+        return mode_suffix
 
     # 找出涉及到的章节范围
     all_ids = []
@@ -137,21 +143,25 @@ def _infer_title(toc: list, questions: list) -> str:
                 matched_chapters.append(ch_title)
 
     if matched_chapters:
-        return f"{'、'.join(matched_chapters)} 测试卷"
+        return f"{'、'.join(matched_chapters)} {mode_suffix}"
 
-    return "测试卷"
+    return mode_suffix
 
 
-def _format_exam(title: str, questions: list) -> str:
-    """排版为 Markdown 试卷。"""
+def _format_exam(title: str, questions: list, type_order: dict) -> str:
+    """排版为 Markdown 试卷。题型顺序按 type_order 动态排列。"""
     lines = [f"# {title}\n"]
 
-    # 按题型分组
-    groups = [
-        ("一、选择题", "choice", questions),
-        ("二、填空题", "fill_blank", questions),
-        ("三、简答题", "short_answer", questions),
-    ]
+    # 按 type_order 排序题型，只保留有题目的类型
+    existing_types = {q.get("question_type", "") for q in questions}
+    sorted_types = sorted(type_order.keys(), key=lambda t: type_order.get(t, 99))
+    sorted_types = [t for t in sorted_types if t in existing_types]
+
+    # 动态生成分组（一、二、三...）
+    groups = []
+    for i, qtype in enumerate(sorted_types):
+        label = TYPE_LABELS.get(qtype, qtype)
+        groups.append((f"{CN_NUM[i]}、{label}", qtype, questions))
 
     answer_lines = ["\n---\n", "# 参考答案\n"]
     global_num = 1

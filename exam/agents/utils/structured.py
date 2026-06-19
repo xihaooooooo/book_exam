@@ -56,7 +56,7 @@ def _parse_json_content(content: str, schema_cls):
 
     # 尝试直接解析
     try:
-        return schema_cls(**json.loads(text))
+        return schema_cls(**json.loads(text, strict=False))
     except (json.JSONDecodeError, Exception):
         pass
 
@@ -67,7 +67,7 @@ def _parse_json_content(content: str, schema_cls):
             if len(parts) > 1:
                 json_str = parts[1].split("```", 1)[0].strip()
                 try:
-                    return schema_cls(**json.loads(json_str))
+                    return schema_cls(**json.loads(json_str, strict=False))
                 except (json.JSONDecodeError, Exception):
                     pass
 
