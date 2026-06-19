@@ -60,16 +60,9 @@ class ComprehensiveQuestion(BaseModel):
 
 
 class QualityReview(BaseModel):
-    """质检审核结果"""
-    verdict: Literal["pass", "fixed", "rejected"] = Field(description="审核结论：pass通过/fixed已修正/rejected退回")
-    issues: str = Field(description="发现的问题（如有）", default="")
-    stem: str = Field(description="修正后的题干")
-    option_a: Optional[str] = Field(default=None, description="修正后的选项A（选择题）")
-    option_b: Optional[str] = Field(default=None, description="修正后的选项B（选择题）")
-    option_c: Optional[str] = Field(default=None, description="修正后的选项C（选择题）")
-    option_d: Optional[str] = Field(default=None, description="修正后的选项D（选择题）")
-    correct_answer: str = Field(description="修正后的正确答案")
-    explanation: str = Field(description="修正后的解析")
+    """质检审核结果（两档制：pass/fail）"""
+    verdict: Literal["pass", "fail"] = Field(description="审核结论：pass通过/fail退回")
+    issues: str = Field(description="发现的问题（fail 时必填）", default="")
 
 
 class ExamPlan(BaseModel):

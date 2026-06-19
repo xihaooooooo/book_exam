@@ -11,6 +11,9 @@ def create_choice_generator(config: dict = None):
 
     def choice_generator_node(state):
         knowledge_point = state.get("knowledge_point", "")
+        fb = state.get("review_feedback", "")
+        if fb:
+            knowledge_point = knowledge_point + f"\n\n上一版未通过审稿，原因：{fb}。请针对这些问题重新出题。"
         task = state.get("current_task", {})
         difficulty = task.get("difficulty", "medium")
 
@@ -68,6 +71,9 @@ def create_fill_blank_generator(config: dict = None):
 
     def fill_blank_generator_node(state):
         knowledge_point = state.get("knowledge_point", "")
+        fb = state.get("review_feedback", "")
+        if fb:
+            knowledge_point = knowledge_point + f"\n\n上一版未通过审稿，原因：{fb}。请针对这些问题重新出题。"
         task = state.get("current_task", {})
         difficulty = task.get("difficulty", "medium")
 
@@ -116,6 +122,9 @@ def create_short_answer_generator(config: dict = None):
 
     def short_answer_generator_node(state):
         knowledge_point = state.get("knowledge_point", "")
+        fb = state.get("review_feedback", "")
+        if fb:
+            knowledge_point = knowledge_point + f"\n\n上一版未通过审稿，原因：{fb}。请针对这些问题重新出题。"
         task = state.get("current_task", {})
         difficulty = task.get("difficulty", "medium")
 
@@ -164,6 +173,9 @@ def create_code_fill_generator(config: dict = None):
 
     def code_fill_generator_node(state):
         knowledge_point = state.get("knowledge_point", "")
+        fb = state.get("review_feedback", "")
+        if fb:
+            knowledge_point = knowledge_point + f"\n\n上一版未通过审稿，原因：{fb}。请针对这些问题重新出题。"
         task = state.get("current_task", {})
         difficulty = task.get("difficulty", "medium")
 
@@ -213,6 +225,9 @@ def create_comprehensive_generator(config: dict = None):
 
     def comprehensive_generator_node(state):
         knowledge_point = state.get("knowledge_point", "")
+        fb = state.get("review_feedback", "")
+        if fb:
+            knowledge_point = knowledge_point + f"\n\n上一版未通过审稿，原因：{fb}。请针对这些问题重新出题。"
         task = state.get("current_task", {})
         difficulty = task.get("difficulty", "medium")
 

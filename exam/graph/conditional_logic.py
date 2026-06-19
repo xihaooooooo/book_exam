@@ -1,5 +1,7 @@
 """条件路由逻辑：决定节点间如何跳转"""
 
+from langgraph.graph import END
+
 from exam.agents.utils.agent_states import AgentState
 
 
@@ -40,3 +42,10 @@ class ConditionalLogic:
         elif q_type == "comprehensive":
             return "comprehensive_generator"
         return "choice_generator"
+
+    @staticmethod
+    def route_after_review(state: AgentState):
+        """质检后路由：无 feedback（pass/force_pass）→ END；有 feedback → 回生成器重试"""
+        if not state.get("review_feedback", ""):
+            return END
+        return ConditionalLogic.route_by_question_type(state)

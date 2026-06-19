@@ -10,44 +10,37 @@ logger = logging.getLogger(__name__)
 
 
 def invoke_structured(llm, schema_cls, messages):
-    """用工具调用方式实现结构化输出。
+    """用工具调用方式实现结构化输出，解析失败时返回 fallback 不崩全场。
 
     不强制 tool_choice（DeepSeek 思考模式不兼容），
     改为在 messages 末尾追加 JSON 格式提示，引导模型输出 JSON。
     """
     from langchain_core.messages import SystemMessage
-    from pydantic import BaseModel
 
-    # 获取 schema 的 JSON 描述
-    schema_name = schema_cls.__name__
-    schema_fields = {}
-    for field_name, field_info in schema_cls.model_fields.items():
-        schema_fields[field_name] = {
-            "type": _field_type_desc(field_info),
-            "description": field_info.description or "",
-        }
+    try:
+        # 获取 schema 的 JSON 描述
+        example_json = json.dumps(_make_example(schema_cls), ensure_ascii=False, indent=2)
+        format_hint = (
+            f"\n\n直接输出以下格式的 JSON，"
+            f"不要用 ``` 包裹，不要先写任何说明文字：\n{example_json}"
+        )
 
-    # 追加 JSON 输出格式提示
-    example_json = json.dumps(_make_example(schema_cls), ensure_ascii=False, indent=2)
-    format_hint = (
-        f"\n\n直接输出以下格式的 JSON，"
-        f"不要用 ``` 包裹，不要先写任何说明文字：\n{example_json}"
-    )
+        # 把格式提示加到 system message 里
+        modified_messages = list(messages)
+        for i, msg in enumerate(modified_messages):
+            if hasattr(msg, "type") and msg.type == "system":
+                modified_messages[i] = msg.__class__(content=msg.content + format_hint)
+                break
+        else:
+            modified_messages.insert(0, SystemMessage(content=format_hint.strip()))
 
-    # 把格式提示加到 system message 里
-    modified_messages = list(messages)
-    for i, msg in enumerate(modified_messages):
-        if hasattr(msg, "type") and msg.type == "system":
-            modified_messages[i] = msg.__class__(content=msg.content + format_hint)
-            break
-    else:
-        modified_messages.insert(0, SystemMessage(content=format_hint.strip()))
+        result = llm.invoke(modified_messages)
+        content = result.content if hasattr(result, "content") else str(result)
 
-    result = llm.invoke(modified_messages)
-    content = result.content if hasattr(result, "content") else str(result)
-
-    # 尝试解析内容
-    return _parse_json_content(content, schema_cls)
+        return _parse_json_content(content, schema_cls)
+    except Exception as e:
+        logger.warning(f"结构化输出解析失败，返回 fallback: {e}")
+        return _make_fallback(schema_cls)
 
 
 def _parse_json_content(content: str, schema_cls):
@@ -79,6 +72,28 @@ def _field_type_desc(field_info) -> str:
     if hasattr(annotation, "__name__"):
         return annotation.__name__
     return str(annotation)
+
+
+def _make_fallback(schema_cls):
+    """构造 fallback 实例，避免解析失败崩全场"""
+    kwargs = {}
+    for field_name, field_info in schema_cls.model_fields.items():
+        annotation = field_info.annotation
+        if hasattr(annotation, "__origin__") and annotation.__origin__ is list:
+            kwargs[field_name] = []
+        elif field_name == "verdict":
+            kwargs[field_name] = "fail"
+        elif field_name == "issues":
+            kwargs[field_name] = "LLM 输出格式异常，无法解析审核结果"
+        elif annotation is str or (hasattr(annotation, "__origin__") and annotation.__origin__ is str):
+            kwargs[field_name] = ""
+        elif annotation is int:
+            kwargs[field_name] = 0
+        elif annotation is bool:
+            kwargs[field_name] = False
+        else:
+            kwargs[field_name] = None
+    return schema_cls(**kwargs)
 
 
 def _make_example(schema_cls) -> dict:

@@ -92,7 +92,11 @@ class GraphSetup:
 
         print(f"\n[并发分发] 共 {len(valid_tasks)} 道题的任务，并发执行...")
         return [
-            Send("generation_pipeline", {"current_task": task})
+            Send("generation_pipeline", {
+                "current_task": task,
+                "retry_count": 0,
+                "review_feedback": "",
+            })
             for task in valid_tasks
         ]
 
@@ -146,7 +150,18 @@ class GraphSetup:
         subgraph.add_edge("code_fill_generator", "quality_reviewer")
         subgraph.add_edge("comprehensive_generator", "quality_reviewer")
 
-        # 质检 → END
-        subgraph.add_edge("quality_reviewer", END)
+        # 质检 → 按 retry 状态路由：pass/force_pass → END，fail → 回生成器重试
+        subgraph.add_conditional_edges(
+            "quality_reviewer",
+            self.conditional_logic.route_after_review,
+            {
+                END: END,
+                "choice_generator": "choice_generator",
+                "fill_blank_generator": "fill_blank_generator",
+                "short_answer_generator": "short_answer_generator",
+                "code_fill_generator": "code_fill_generator",
+                "comprehensive_generator": "comprehensive_generator",
+            },
+        )
 
         return subgraph.compile()
