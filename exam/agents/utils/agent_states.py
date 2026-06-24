@@ -21,6 +21,8 @@ class AgentState(MessagesState):
 
     # 出题模式
     mode: str
+    db_path: str
+    student_id: str
 
     # 用户参数
     focus: str
@@ -43,5 +45,23 @@ class AgentState(MessagesState):
     # 最终收集（operator.add 做累加）
     all_questions: Annotated[list[dict], operator.add]
 
+    # 练习计划（practice 模式由 strategy_router 填充）
+    practice_plan: dict | None
+
     # 最终试卷
     final_exam: str
+
+
+# ── 判题图状态 ──
+
+from typing import TypedDict, Optional
+
+class JudgeState(TypedDict):
+    """批量判题状态。"""
+    student_id: str
+    answers: list[dict]     # 输入+输出：每道题的完整数据
+                            # 输入：question_type, student_answer, correct_answer,
+                            #       stem, explanation, section_id, topic, difficulty,
+                            #       duration_sec, confidence
+                            # 输出（judge_all 填充）：is_correct, reason, method
+    llm_client: Optional[object]

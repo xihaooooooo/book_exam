@@ -239,6 +239,10 @@ class PdfParser:
                 (section_id, chapter, sec["title"], start_page + 1, end_page,
                  text, "done" if text else "pending")
             )
+        # 建 FTS5 全文索引
+        conn.execute("DROP TABLE IF EXISTS sections_fts")
+        conn.execute("CREATE VIRTUAL TABLE sections_fts USING fts5(id, text)")
+        conn.execute("INSERT INTO sections_fts SELECT id, text FROM sections WHERE text != ''")
         conn.commit()
         conn.close()
 

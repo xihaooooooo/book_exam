@@ -1,3 +1,8 @@
+---
+name: red-blue-review
+description: 红蓝对抗设计审查——红方找缺陷，蓝方给修法，输出改进计划
+---
+
 # Red-Blue Design Review Skill
 
 ## 触发方式

@@ -52,27 +52,7 @@ def _build_toc_from_db(db_path: str) -> list[dict]:
 
 
 def derive_params(mode, student_id, db_path, user_focus, user_count, user_types):
-    """根据 mode 推导 focus、count、types。用户显式传入优先。"""
-    if mode == "exam":
-        return user_focus or "", user_count or 0, user_types or ""
-
-    if mode == "diagnostic":
-        toc = _build_toc_from_db(db_path)
-        chapter_count = len(toc)
-        count = user_count if user_count > 0 else min(chapter_count * 2, 30)
-        count = max(count, 6)
-        return "", count, "choice"
-
-    if mode == "practice":
-        weak = get_weak_sections(student_id)
-        if not weak:
-            print("警告：该学生错题库为空，降级为 exam 模式")
-            return user_focus or "", user_count or 0, user_types or ""
-
-        focus = user_focus if user_focus else ",".join(w["section_id"] for w in weak)
-        count = user_count if user_count > 0 else min(len(weak) * 2, 30)
-        return focus, count, user_types or ""
-
+    """透传用户参数。路由逻辑已移入图内 strategy_router 节点。"""
     return user_focus or "", user_count or 0, user_types or ""
 
 
@@ -166,6 +146,7 @@ def main():
         allowed_types=types,
         analysis_report_path=analysis_path,
         mode=mode,
+        student_id=args.student or "",
     )
 
     print("\n" + "=" * 60)

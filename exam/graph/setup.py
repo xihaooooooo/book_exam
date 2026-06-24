@@ -25,6 +25,7 @@ from exam.agents.utils.agent_utils import (
 )
 
 from .conditional_logic import ConditionalLogic
+from .strategy import strategy_router
 
 
 class GraphSetup:
@@ -35,8 +36,11 @@ class GraphSetup:
         self.conditional_logic = ConditionalLogic()
 
     def setup_graph(self):
-        """构建完整图：主编 → Send 并发流水线 → END"""
+        """构建完整图：策略路由 → 主编 → Send 并发流水线 → END"""
         workflow = StateGraph(AgentState)
+
+        # ── 策略路由 ──
+        workflow.add_node("strategy_router", strategy_router)
 
         # ── 主编及其工具 ──
         editor_tools = ToolNode([get_section_text, get_surrounding_context, search_keyword, peek_section])
@@ -51,8 +55,9 @@ class GraphSetup:
 
         # ── 边 ──
 
-        # 起点 → 主编
-        workflow.add_edge(START, "chief_editor")
+        # 起点 → 策略路由 → 主编
+        workflow.add_edge(START, "strategy_router")
+        workflow.add_edge("strategy_router", "chief_editor")
 
         # 主编：工具循环
         workflow.add_conditional_edges(

@@ -166,14 +166,43 @@ def init_mistakes_db(db_path: str = "cache/mistakes.db"):
     db.close()
 
 
+@tool
 def get_weak_sections(student_id: str) -> list[dict]:
-    """返回该学生按章节聚合的弱点统计，按错误次数降序。"""
+    """返回该学生按章节聚合的弱点统计，按错误次数降序。
+    优先从 attempts 表查，无数据时回退 mistakes 表。
+
+    Args:
+        student_id: 学生标识，如 'S001'
+    """
+    import os
+    attempts_db = os.path.join(
+        os.path.dirname(_mistakes_db_path or "cache/mistakes.db"), "attempts.db"
+    )
+
+    # 优先从 attempts 查
+    if os.path.exists(attempts_db):
+        db = sqlite3.connect(attempts_db)
+        rows = db.execute(
+            """SELECT section_id, topic, COUNT(*) as error_count
+               FROM attempts WHERE student_id = ? AND is_correct = 0
+               AND section_id != ''
+               GROUP BY section_id ORDER BY error_count DESC""",
+            (student_id,),
+        ).fetchall()
+        db.close()
+        if rows:
+            return [
+                {"section_id": r[0], "topic": r[1], "error_count": r[2]}
+                for r in rows
+            ]
+
+    # 回退 mistakes 表
     db = sqlite3.connect(_mistakes_db_path or "cache/mistakes.db")
     rows = db.execute(
         """SELECT section_id, topic, COUNT(*) as error_count
            FROM mistakes WHERE student_id = ? AND section_id != ''
            GROUP BY section_id ORDER BY error_count DESC""",
-        (student_id,)
+        (student_id,),
     ).fetchall()
     db.close()
     return [
