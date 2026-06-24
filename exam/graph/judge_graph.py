@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 LLM_TIMEOUT = 30
 LLM_CONCURRENCY = 5
-DIAGNOSIS_CONCURRENCY = 2
+DIAGNOSIS_CONCURRENCY = 5
 
 # ── 错因枚举 ──
 

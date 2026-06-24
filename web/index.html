@@ -1,0 +1,876 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>期末速通</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: "PingFang SC", "Microsoft YaHei", -apple-system, sans-serif;
+    min-height: 100vh;
+    background: radial-gradient(ellipse 90% 80% at 65% 35%, #4A5D43 0%, #6B7D5E 18%, #A2845B 42%, #C9AD82 65%, #E3C9A3 100%);
+    background-attachment: fixed;
+  }
+  body::after {
+    content: ''; position: fixed; inset: 0; z-index: 0; pointer-events: none; opacity: 0.035;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    background-size: 200px 200px;
+  }
+
+  .wrap { position: relative; z-index: 1; max-width: 860px; margin: 0 auto; padding: 20px 16px 60px; }
+
+  /* ── Tab bar ── */
+  .tab-bar {
+    display: flex; gap: 6px; margin-bottom: 24px;
+    padding: 6px; border-radius: 18px;
+    background: rgba(255,255,255,0.18); border: 1px solid rgba(255,255,255,0.25);
+    backdrop-filter: blur(12px);
+  }
+  .tab-btn {
+    flex: 1; padding: 12px 8px; border-radius: 14px; border: none;
+    background: transparent; color: rgba(255,255,255,0.7);
+    font-family: inherit; font-size: 15px; font-weight: 500;
+    letter-spacing: 0.04em; cursor: pointer; transition: all 0.25s;
+  }
+  .tab-btn:hover { color: rgba(255,255,255,0.9); background: rgba(255,255,255,0.08); }
+  .tab-btn.active {
+    background: rgba(255,255,255,0.85); color: #2E2C29;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+    font-weight: 600;
+  }
+
+  /* ── Tab content ── */
+  .tab-content { display: none; animation: cardIn 0.35s ease; }
+  .tab-content.active { display: block; }
+  @keyframes cardIn { from { opacity: 0; transform: translateY(8px); } }
+
+  /* ── Cards ── */
+  .card {
+    background: rgba(255,255,255,0.82); border-radius: 18px;
+    border: 1px solid rgba(255,255,255,0.5);
+    box-shadow: 0 12px 36px -12px rgba(0,0,0,0.08);
+    padding: 24px 28px; margin-bottom: 16px;
+  }
+  .sec-title { font-size: 13px; font-weight: 500; color: #8B8680; letter-spacing: 0.06em; margin-bottom: 14px; text-transform: uppercase; }
+
+  /* ── Generate tab ── */
+  .mode-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 20px; }
+  .mode-card {
+    padding: 18px 12px; border-radius: 14px; cursor: pointer; text-align: center;
+    border: 1.5px solid transparent; background: rgba(255,255,255,0.35);
+    transition: all 0.2s;
+  }
+  .mode-card:hover { background: rgba(255,255,255,0.5); transform: translateY(-1px); }
+  .mode-card.sel { background: rgba(255,255,255,0.65); border-color: rgba(184,137,79,0.45); }
+  .mode-card .mode-icon { font-size: 28px; margin-bottom: 4px; }
+  .mode-card .mode-label { font-size: 14px; font-weight: 600; color: #2E2C29; }
+  .mode-card .mode-hint { font-size: 11px; color: #8B8680; margin-top: 2px; }
+
+  .form-row { display: flex; gap: 12px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+  .form-row label { font-size: 13px; color: #8B8680; min-width: 50px; letter-spacing: 0.03em; }
+  .form-row input[type="number"] { width: 80px; padding: 8px 10px; border-radius: 10px; border: 1px solid rgba(0,0,0,0.1); font-size: 15px; text-align: center; background: rgba(255,255,255,0.6); outline: none; }
+  .form-row input[type="text"] { flex: 1; min-width: 150px; padding: 8px 12px; border-radius: 10px; border: 1px solid rgba(0,0,0,0.1); font-size: 14px; background: rgba(255,255,255,0.6); outline: none; font-family: "SF Mono","IBM Plex Mono",Menlo,monospace; }
+  .form-row input:focus { border-color: rgba(184,137,79,0.5); box-shadow: 0 0 0 3px rgba(184,137,79,0.08); }
+
+  .type-tags { display: flex; gap: 8px; flex-wrap: wrap; }
+  .type-tag {
+    padding: 6px 16px; border-radius: 20px; cursor: pointer; user-select: none;
+    font-size: 13px; border: 1px solid rgba(0,0,0,0.08); background: rgba(255,255,255,0.4);
+    color: #5A5650; transition: all 0.2s;
+  }
+  .type-tag.sel { background: #B8894F; color: #fff; border-color: #B8894F; }
+
+  .btn-gen {
+    width: 100%; padding: 14px; border-radius: 14px; border: none;
+    background: #B8894F; color: #fff; font-family: inherit;
+    font-size: 16px; font-weight: 600; letter-spacing: 0.04em;
+    cursor: pointer; transition: all 0.2s;
+    box-shadow: 0 4px 20px rgba(184,137,79,0.35);
+    margin-top: 16px;
+  }
+  .btn-gen:hover { background: #A67A42; transform: translateY(-1px); }
+  .btn-gen:disabled { opacity: 0.4; cursor: not-allowed; transform: none; box-shadow: none; }
+
+  .gen-result { text-align: center; padding: 20px; animation: cardIn 0.4s ease; }
+  .gen-result .big { font-size: 36px; font-weight: 300; color: #2E2C29; }
+
+  /* ── Quiz tab (from quiz.html) ── */
+  .quiz-card { width: 100%; max-width: 560px; margin: 0 auto; }
+  .qinfo { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; }
+  .qinfo .qtopic { font-size: 16px; font-weight: 300; color: #2E2C29; letter-spacing: 0.03em; }
+  .qinfo .qmeta { display: flex; align-items: center; gap: 12px; }
+  .qinfo .qtimer { font-family: "SF Mono","IBM Plex Mono",Menlo,monospace; font-size: 14px; color: #8B8680; }
+  .badge {
+    font-family: "SF Mono","IBM Plex Mono",Menlo,monospace;
+    font-size: 12px; font-weight: 500; letter-spacing: 0.05em;
+    padding: 6px 14px; border-radius: 20px;
+    background: rgba(255,255,255,0.4); border: 1px solid rgba(255,255,255,0.35);
+  }
+  .badge.easy { color: #4A7C59; } .badge.medium { color: #A2845B; } .badge.hard { color: #B55A4A; }
+  .badge.choice { color: #5A6A82; } .badge.fill_blank { color: #7A6A52; } .badge.short_answer { color: #6A5A72; }
+  .qprog { display: flex; gap: 4px; align-items: center; margin-bottom: 28px; }
+  .qprog .seg { flex: 1; height: 5px; border-radius: 3px; background: rgba(0,0,0,0.06); }
+  .qprog .seg.done { background: #C49A5E; }
+  .qprog .qnum { font-family: "SF Mono","IBM Plex Mono",Menlo,monospace; font-size: 13px; color: #8B8680; margin-left: 10px; white-space: nowrap; }
+  .qstem { font-size: 21px; font-weight: 600; line-height: 2.0; color: #141210; letter-spacing: 0.03em; margin-bottom: 28px; }
+  .opts { display: flex; flex-direction: column; gap: 10px; margin-bottom: 24px; }
+  .opt {
+    display: flex; align-items: center; gap: 14px;
+    padding: 14px 18px; border-radius: 14px; cursor: pointer; transition: all 0.2s;
+    border: 1.5px solid transparent; background: rgba(255,255,255,0.28); user-select: none;
+  }
+  .opt:hover { background: rgba(255,255,255,0.45); }
+  .opt .dot {
+    flex-shrink: 0; width: 32px; height: 32px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-family: "SF Mono","IBM Plex Mono",Menlo,monospace;
+    font-size: 15px; font-weight: 600; background: rgba(255,255,255,0.6);
+    color: #6B6660; border: 1.5px solid rgba(0,0,0,0.08);
+  }
+  .opt .txt { font-size: 17px; font-weight: 500; color: #1a1816; letter-spacing: 0.02em; line-height: 1.7; }
+  .opt.sel { background: rgba(255,255,255,0.45); border-color: rgba(196,154,94,0.4); }
+  .opt.sel .dot { background: #C49A5E; color: #fff; border-color: #C49A5E; }
+  .submitted .opt { pointer-events: none; opacity: 0.6; }
+  .tinp {
+    width: 100%; padding: 14px 18px; border-radius: 14px; border: 1.5px solid rgba(0,0,0,0.08);
+    background: rgba(255,255,255,0.6); font-family: inherit;
+    font-size: 17px; color: #1a1816; letter-spacing: 0.02em; line-height: 1.7;
+    transition: border-color 0.2s; margin-bottom: 24px; outline: none;
+  }
+  .tinp:focus { border-color: rgba(196,154,94,0.5); box-shadow: 0 0 0 3px rgba(196,154,94,0.1); }
+  .conf { margin-bottom: 20px; display: flex; align-items: center; gap: 8px; }
+  .conf .clabel { font-size: 13px; color: #8B8680; font-family: "SF Mono","IBM Plex Mono",Menlo,monospace; }
+  .conf .stars { display: flex; gap: 2px; }
+  .conf .star { font-size: 24px; cursor: pointer; color: rgba(0,0,0,0.08); transition: all 0.15s; user-select: none; }
+  .conf .star:hover { transform: scale(1.2); }
+  .conf .star.on { color: #C49A5E; }
+  .btns { display: flex; gap: 10px; }
+  .btn {
+    flex: 1; padding: 13px; border-radius: 14px; border: none;
+    font-family: inherit; font-size: 16px; font-weight: 600;
+    letter-spacing: 0.03em; cursor: pointer; transition: all 0.2s;
+  }
+  .btn-submit { background: #B8894F; color: #fff; box-shadow: 0 4px 20px rgba(184,137,79,0.35); }
+  .btn-submit:hover { background: #A67A42; }
+  .btn-submit:disabled { opacity: 0.25; cursor: not-allowed; box-shadow: none; }
+  .btn-next { background: rgba(255,255,255,0.5); color: #3a3632; border: 1px solid rgba(255,255,255,0.4); }
+  .btn-next:hover { background: rgba(255,255,255,0.7); }
+  .btn-finish { background: #B55A4A; color: #fff; box-shadow: 0 4px 20px rgba(181,90,74,0.35); }
+  .btn-finish:hover { background: #9B4A3C; }
+  .btn-finish:disabled { opacity: 0.25; cursor: not-allowed; box-shadow: none; }
+  .qresult { text-align: center; animation: cardIn 0.5s ease; }
+  .qresult .big { font-size: 56px; font-weight: 300; color: #2E2C29; letter-spacing: -1px; margin-bottom: 8px; }
+  .qresult .big span { font-size: 18px; color: #8B8680; }
+  .qresult .stats { display: flex; gap: 12px; margin: 28px 0; }
+  .qresult .stat { flex: 1; padding: 20px 12px; border-radius: 14px; background: rgba(255,255,255,0.35); border: 1px solid rgba(255,255,255,0.3); }
+  .qresult .stat .val { font-size: 24px; font-weight: 500; color: #2E2C29; }
+  .qresult .stat .lbl { font-size: 12px; color: #8B8680; margin-top: 4px; }
+  .qresult .review { text-align: left; margin-top: 20px; }
+  .qresult .review h3 { font-size: 13px; color: #8B8680; margin-bottom: 10px; font-weight: 400; }
+  .qresult .ritem { padding: 14px 16px; border-radius: 10px; margin-bottom: 6px; display: flex; gap: 12px; align-items: flex-start; font-size: 14px; background: rgba(255,255,255,0.3); }
+  .qresult .ritem.r-ok { border-left: 3px solid #4A7C59; }
+  .qresult .ritem.r-no { border-left: 3px solid #B55A4A; }
+
+  /* ── Profile tab (from profile.html) ── */
+  .overview { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 14px; margin-bottom: 16px; }
+  .stat-card {
+    background: rgba(255,255,255,0.82); border-radius: 18px; padding: 22px 20px;
+    border: 1px solid rgba(255,255,255,0.5);
+    box-shadow: 0 12px 36px -12px rgba(0,0,0,0.08); text-align: center;
+  }
+  .stat-card .pval { font-size: 32px; font-weight: 300; color: #2E2C29; letter-spacing: -0.5px; }
+  .stat-card .plbl { font-size: 12px; color: #8B8680; margin-top: 4px; letter-spacing: 0.04em; }
+  .mastery-pills { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; justify-content: center; }
+  .pill {
+    font-size: 12px; font-weight: 500; letter-spacing: 0.03em;
+    padding: 4px 12px; border-radius: 20px;
+    background: rgba(255,255,255,0.5); border: 1px solid rgba(0,0,0,0.06); color: #5A5650;
+  }
+  .pill.mastered { background: rgba(74,124,89,0.15); border-color: rgba(74,124,89,0.3); color: #3A6348; }
+  .pill.weak { background: rgba(181,90,74,0.12); border-color: rgba(181,90,74,0.25); color: #9B4A3C; }
+  .pill.unstable { background: rgba(212,149,106,0.12); border-color: rgba(212,149,106,0.25); color: #A06838; }
+  .topic-row { display: grid; grid-template-columns: 1fr 180px 80px; align-items: center; gap: 16px; padding: 14px 0; border-bottom: 1px solid rgba(0,0,0,0.04); }
+  .topic-row:last-child { border-bottom: none; }
+  .topic-name { font-size: 15px; font-weight: 500; color: #2E2C29; }
+  .topic-name .tsid { font-family: "SF Mono","IBM Plex Mono",Menlo,monospace; font-size: 12px; color: #8B8680; margin-right: 6px; }
+  .topic-name .terr { display: inline-block; font-size: 11px; color: #B55A4A; margin-left: 8px; padding: 1px 8px; border-radius: 10px; background: rgba(181,90,74,0.08); }
+  .pl-bar-wrap { position: relative; }
+  .pl-bar-bg { height: 8px; border-radius: 4px; background: rgba(0,0,0,0.05); overflow: hidden; }
+  .pl-bar-fill { height: 100%; border-radius: 4px; transition: width 0.6s ease, background 0.6s ease; }
+  .pl-bar-label { font-family: "SF Mono","IBM Plex Mono",Menlo,monospace; font-size: 11px; color: #8B8680; margin-top: 4px; text-align: right; }
+  .beta-mini { display: flex; align-items: center; gap: 6px; }
+  .beta-mini canvas { border-radius: 4px; background: rgba(0,0,0,0.02); }
+  .beta-params { font-family: "SF Mono","IBM Plex Mono",Menlo,monospace; font-size: 10px; color: #A09890; line-height: 1.5; }
+  .ml-badge {
+    display: inline-block; font-size: 11px; font-weight: 500; letter-spacing: 0.03em;
+    padding: 2px 10px; border-radius: 20px;
+  }
+  .ml-badge.mastered { background: rgba(74,124,89,0.12); color: #3A6348; }
+  .ml-badge.familiar { background: rgba(138,170,106,0.12); color: #5A7A42; }
+  .ml-badge.unstable { background: rgba(212,149,106,0.12); color: #A06838; }
+  .ml-badge.weak { background: rgba(181,90,74,0.12); color: #9B4A3C; }
+  .ml-badge.unknown { background: rgba(0,0,0,0.04); color: #A09890; }
+  .rec-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .rec-table th { text-align: left; padding: 8px 10px; font-weight: 500; letter-spacing: 0.03em; color: #8B8680; border-bottom: 2px solid rgba(0,0,0,0.06); font-size: 11px; }
+  .rec-table td { padding: 10px; border-bottom: 1px solid rgba(0,0,0,0.04); color: #3A3632; }
+  .rec-reason { font-size: 13px; color: #8B8680; margin-top: 12px; padding: 10px 14px; background: rgba(0,0,0,0.02); border-radius: 10px; line-height: 1.6; }
+  .err-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+  .err-bar .err-label { width: 80px; font-size: 13px; color: #5A5650; text-align: right; flex-shrink: 0; }
+  .err-bar .err-track { flex: 1; height: 6px; border-radius: 3px; background: rgba(0,0,0,0.04); overflow: hidden; }
+  .err-bar .err-fill { height: 100%; border-radius: 3px; background: #B8894F; transition: width 0.5s ease; }
+  .err-bar .err-cnt { font-family: "SF Mono","IBM Plex Mono",Menlo,monospace; font-size: 12px; color: #8B8680; width: 50px; flex-shrink: 0; }
+  .risk-item { padding: 10px 14px; margin-bottom: 6px; border-radius: 10px; background: rgba(181,90,74,0.06); border-left: 3px solid #B55A4A; font-size: 13px; color: #5A3A30; line-height: 1.5; }
+  .empty-state { text-align: center; padding: 48px 20px; color: #B5B0A8; }
+  .loading-state { text-align: center; padding: 48px 20px; color: #8B8680; font-size: 15px; }
+
+  @media (max-width: 640px) {
+    .topic-row { grid-template-columns: 1fr; gap: 8px; }
+    .overview { grid-template-columns: repeat(2, 1fr); }
+    .mode-row { grid-template-columns: 1fr; }
+    .quiz-card { max-width: 100%; }
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+  <!-- Tab bar -->
+  <div class="tab-bar">
+    <button class="tab-btn active" data-tab="generate" onclick="switchTab('generate')">📝 出题</button>
+    <button class="tab-btn" data-tab="quiz" onclick="switchTab('quiz')">✏️ 答题</button>
+    <button class="tab-btn" data-tab="profile" onclick="switchTab('profile')">📊 画像</button>
+  </div>
+
+  <!-- ═══════ Tab: 出题 ═══════ -->
+  <div id="tab-generate" class="tab-content active">
+
+    <div class="card">
+      <div class="sec-title">出题模式</div>
+      <div class="mode-row">
+        <div class="mode-card sel" data-mode="exam" onclick="selectMode('exam')">
+          <div class="mode-icon">📖</div>
+          <div class="mode-label">全书 / 定向出题</div>
+          <div class="mode-hint">支持指定考点 + 参照往年试卷</div>
+        </div>
+        <div class="mode-card" data-mode="diagnostic" onclick="selectMode('diagnostic')">
+          <div class="mode-icon">🔍</div>
+          <div class="mode-label">摸底诊断</div>
+          <div class="mode-hint">每章 2 道 easy 选择题</div>
+        </div>
+        <div class="mode-card" data-mode="practice" onclick="selectMode('practice')">
+          <div class="mode-icon">🎯</div>
+          <div class="mode-label">薄弱练习</div>
+          <div class="mode-hint">BKT + Bandit 推荐引擎</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="sec-title">参数设置</div>
+
+      <!-- 题数 + 题型：diagnostic 锁定 -->
+      <div class="form-row">
+        <label>目标题数</label>
+        <input type="number" id="genCount" value="0" min="0" max="50" style="width:70px;">
+        <span style="font-size:11px;color:#8B8680;margin-left:4px;" id="countHint">0=自动（6-12 自适应）</span>
+        <label style="margin-left:14px;">题型</label>
+        <div class="type-tags" id="typeTags">
+          <span class="type-tag sel" data-type="choice" onclick="toggleType(this)">选择题</span>
+          <span class="type-tag sel" data-type="fill_blank" onclick="toggleType(this)">填空题</span>
+          <span class="type-tag sel" data-type="short_answer" onclick="toggleType(this)">简答题</span>
+        </div>
+      </div>
+
+      <!-- exam 专属：定向考点 -->
+      <div class="form-row" id="focusRow">
+        <label>定向考点</label>
+        <input type="text" id="genFocus" placeholder="关键词，逗号分隔。如：任务调度,信号量,内存管理">
+        <span style="font-size:11px;color:#8B8680;">留空=覆盖全书</span>
+      </div>
+
+      <!-- exam 专属：往年试卷参照 -->
+      <div class="form-row" id="analysisRow" style="flex-wrap:wrap;">
+        <label>往年试卷</label>
+        <select id="genAnalysis" style="padding:8px 12px;border-radius:10px;border:1px solid rgba(0,0,0,0.1);font-size:14px;background:rgba(255,255,255,0.6);outline:none;min-width:200px;">
+          <option value="">不参照</option>
+        </select>
+        <input type="file" id="examFileInput" accept=".docx" style="display:none;" onchange="uploadExamFile(this)">
+        <button class="btn btn-next" style="flex:none;width:auto;padding:8px 16px;font-size:13px;" onclick="document.getElementById('examFileInput').click();return false;">📤 上传试卷分析</button>
+        <span id="uploadStatus" style="font-size:11px;color:#8B8680;"></span>
+      </div>
+
+      <!-- practice 专属：学生 ID -->
+      <div class="form-row" id="studentRow" style="display:none;">
+        <label>学生 ID</label>
+        <input type="text" id="genStudent" value="default" style="width:140px;flex:none;">
+      </div>
+
+      <button class="btn-gen" id="genBtn" onclick="doGenerate()">生成试卷</button>
+      <div id="genStatus"></div>
+    </div>
+  </div>
+
+  <!-- ═══════ Tab: 答题 ═══════ -->
+  <div id="tab-quiz" class="tab-content">
+    <div id="quizRoot"></div>
+  </div>
+
+  <!-- ═══════ Tab: 画像 ═══════ -->
+  <div id="tab-profile" class="tab-content">
+    <div id="profileRoot"></div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════
+// Shared state
+// ═══════════════════════════════════
+const STUDENT_ID = new URLSearchParams(location.search).get('student') || 'default';
+const TYPE_LABELS = { choice:'选择题', fill_blank:'填空题', short_answer:'简答题', comprehensive:'综合题' };
+const DIFF_LABELS = { easy:'简单', medium:'中等', hard:'困难', easy_to_medium:'简单→中等', medium_to_hard:'中等→困难' };
+const ML_LABELS = { mastered:'已掌握', familiar:'熟悉', unstable:'不稳定', weak:'薄弱', unknown:'未知' };
+
+// ═══════════════════════════════════
+// Tab switching
+// ═══════════════════════════════════
+function switchTab(name) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.toggle('active', c.id === 'tab-' + name));
+  if (name === 'quiz') initQuiz();
+  if (name === 'profile') loadProfile();
+}
+
+// ═══════════════════════════════════
+// Tab 1: Generate
+// ═══════════════════════════════════
+let genMode = 'exam';
+const typeMap = { '选择题': 'choice', '填空题': 'fill_blank', '简答题': 'short_answer' };
+
+function selectMode(mode) {
+  genMode = mode;
+  document.querySelectorAll('.mode-card').forEach(c => c.classList.toggle('sel', c.dataset.mode === mode));
+
+  const examOnly = (mode === 'exam');
+  const diag = (mode === 'diagnostic');
+  const prac = (mode === 'practice');
+
+  // exam: show focus + analysis; diagnostic: hide both; practice: hide both
+  document.getElementById('focusRow').style.display = examOnly ? '' : 'none';
+  document.getElementById('analysisRow').style.display = examOnly ? '' : 'none';
+  document.getElementById('studentRow').style.display = prac ? '' : 'none';
+
+  // diagnostic: force choice only
+  if (diag) {
+    document.querySelectorAll('#typeTags .type-tag').forEach(t => {
+      t.classList.toggle('sel', t.dataset.type === 'choice');
+    });
+    document.getElementById('genCount').value = 0;
+    document.getElementById('countHint').textContent = '0=自动（章数×2，≤30）';
+  } else if (exam) {
+    document.getElementById('countHint').textContent = '0=自动（6-12 自适应）';
+  } else {
+    document.getElementById('countHint').textContent = '0=自动（知识点×3，≤20）';
+  }
+}
+
+function toggleType(el) {
+  // diagnostic 不允许取消选择
+  if (genMode === 'diagnostic' && el.dataset.type === 'choice') return;
+  el.classList.toggle('sel');
+}
+
+async function loadAnalysisReports() {
+  try {
+    const res = await fetch('/api/analysis-reports');
+    if (!res.ok) return;
+    const reports = await res.json();
+    const sel = document.getElementById('genAnalysis');
+    // 清除旧选项（保留第一个"不参照"）
+    while (sel.options.length > 1) sel.remove(1);
+    reports.forEach(r => {
+      const opt = document.createElement('option');
+      opt.value = r.path;
+      opt.textContent = `${r.filename}（${r.exam_count}份卷，${r.total_questions}题）`;
+      sel.appendChild(opt);
+    });
+  } catch(e) {}
+}
+
+function uploadExamFile(input) {
+  const file = input.files[0];
+  if (!file) return;
+
+  const status = document.getElementById('uploadStatus');
+  status.textContent = '⏳ 分析中...';
+  status.style.color = '#8B8680';
+
+  const reader = new FileReader();
+  reader.onload = function() {
+    // 去掉 data:...;base64, 前缀
+    const b64 = reader.result.split(',')[1];
+    fetch('/api/analyze-exam', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename: file.name, data_base64: b64 }),
+    }).then(r => r.json()).then(data => {
+      if (data.ok) {
+        status.textContent = `✅ ${data.filename}（${data.questions}题）`;
+        status.style.color = '#4A7C59';
+        loadAnalysisReports();  // 刷新下拉列表
+        // 自动选中刚生成的报告
+        setTimeout(() => {
+          const sel = document.getElementById('genAnalysis');
+          for (let i = 0; i < sel.options.length; i++) {
+            if (sel.options[i].textContent.includes(data.filename)) {
+              sel.selectedIndex = i;
+              break;
+            }
+          }
+        }, 300);
+      } else {
+        status.textContent = '❌ ' + (data.error || '分析失败');
+        status.style.color = '#B55A4A';
+      }
+    }).catch(e => {
+      status.textContent = '❌ 网络错误';
+      status.style.color = '#B55A4A';
+    });
+  };
+  reader.readAsDataURL(file);
+  input.value = '';
+}
+
+function doGenerate() {
+  const btn = document.getElementById('genBtn');
+  const status = document.getElementById('genStatus');
+  btn.disabled = true;
+  status.innerHTML = '<div class="loading-state" style="padding:20px;">⏳ 出题中，请耐心等待（约 30-60 秒）...</div>';
+
+  const selTypes = [];
+  document.querySelectorAll('#typeTags .type-tag.sel').forEach(t => selTypes.push(typeMap[t.dataset.type]));
+  const student = genMode === 'practice' ? (document.getElementById('genStudent').value.trim() || 'default') : STUDENT_ID;
+  const analysisReport = document.getElementById('genAnalysis').value;
+
+  fetch('/api/generate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      mode: genMode,
+      count: parseInt(document.getElementById('genCount').value) || 0,
+      types: selTypes.join(','),
+      focus: document.getElementById('genFocus').value.trim(),
+      student_id: student,
+      analysis_report: analysisReport,
+    }),
+  }).then(r => r.json()).then(data => {
+    btn.disabled = false;
+    if (data.ok) {
+      status.innerHTML = `<div class="gen-result">
+        <div class="big">✅ ${data.count} 题</div>
+        <div style="color:#8B8680;margin:8px 0;">模式：${data.mode} · 已加载到答题区</div>
+        <button class="btn btn-submit" style="margin-top:12px;width:auto;padding:12px 32px;" onclick="switchTab('quiz')">去答题 →</button>
+      </div>`;
+    } else {
+      status.innerHTML = `<div class="empty-state" style="padding:20px;color:#B55A4A;">❌ ${data.error || '未知错误'}</div>`;
+    }
+  }).catch(e => {
+    btn.disabled = false;
+    status.innerHTML = `<div class="empty-state" style="padding:20px;color:#B55A4A;">❌ 网络错误：${e.message}</div>`;
+  });
+}
+
+// ═══════════════════════════════════
+// Tab 2: Quiz
+// ═══════════════════════════════════
+let questions = [], qIdx = 0, qStartTs = Date.now(), confidence = 3, answers = [];
+
+async function fetchQuestions() {
+  try {
+    const res = await fetch('/api/questions');
+    if (res.ok) { questions = await res.json(); return; }
+  } catch(e) {}
+  questions = [];
+}
+
+function initQuiz() {
+  if (questions.length === 0) {
+    document.getElementById('quizRoot').innerHTML = '<div class="card loading-state">📭 暂无题目，请先去"出题"Tab 生成试卷</div>';
+    fetchQuestions().then(() => { if (questions.length > 0) renderQuiz(); });
+    return;
+  }
+  if (document.getElementById('quizRoot').children.length === 0 ||
+      document.getElementById('quizRoot').querySelector('.loading-state') ||
+      document.getElementById('quizRoot').querySelector('.empty-state')) {
+    answers = new Array(questions.length);
+    qIdx = 0; qStartTs = Date.now(); confidence = 3;
+    renderQuiz();
+  }
+}
+
+function renderQuiz() {
+  if (!questions.length) {
+    document.getElementById('quizRoot').innerHTML = '<div class="card loading-state">📭 暂无题目，请先去"出题"Tab 生成试卷</div>';
+    return;
+  }
+  const q = questions[qIdx], total = questions.length;
+  const ans = answers[qIdx] || {};
+  const isChoice = q.question_type === 'choice';
+  const elapsed = Math.floor((Date.now() - qStartTs) / 1000);
+  const hasAns = ans.student_answer && ans.student_answer.trim();
+
+  let segs = '';
+  for (let i = 0; i < total; i++) segs += `<div class="seg${i<=qIdx?' done':''}"></div>`;
+
+  let inputHtml = '';
+  if (isChoice) {
+    let o = '<div class="opts">';
+    (q.options||[]).forEach((opt,i) => {
+      let cls = labelOf(i) === ans.student_answer ? ' sel' : '';
+      o += `<div class="opt${cls}" data-oi="${i}"><div class="dot">${labelOf(i)}</div><div class="txt">${opt.replace(/^[A-D][.、\s]+/,'')}</div></div>`;
+    });
+    inputHtml = o + '</div>';
+  } else {
+    const ph = q.question_type==='fill_blank'?'请输入答案...':'请输入你的回答...';
+    inputHtml = `<textarea class="tinp" id="textAns" rows="${q.question_type==='short_answer'?4:2}" placeholder="${ph}">${ans.student_answer||''}</textarea>`;
+  }
+
+  let starsHtml = '';
+  for (let i=0;i<5;i++) starsHtml += `<span class="star${i<confidence?' on':''}" data-c="${i+1}">★</span>`;
+
+  const isLast = qIdx === total - 1;
+  const btnHtml = isLast
+    ? `<button class="btn btn-finish" id="submitBtn" onclick="confirmSubmit()" ${!hasAns?'disabled':''}>交卷</button>`
+    : `<button class="btn btn-submit" id="submitBtn" onclick="nextQ()" ${!hasAns?'disabled':''}>下一题 →</button>`;
+
+  document.getElementById('quizRoot').innerHTML = `
+    <div class="card quiz-card">
+      <div class="qinfo">
+        <div class="qtopic">${esc(q.source||'')}  ${esc(q.topic||'')}</div>
+        <div class="qmeta">
+          <div class="qtimer">${String(Math.floor(elapsed/60)).padStart(2,'0')}:${String(elapsed%60).padStart(2,'0')}</div>
+          <div class="badge ${q.question_type}">${TYPE_LABELS[q.question_type]||q.question_type}</div>
+          <div class="badge ${q.difficulty}">${DIFF_LABELS[q.difficulty]||q.difficulty}</div>
+        </div>
+      </div>
+      <div class="qprog">${segs}<div class="qnum">${String(qIdx+1).padStart(2,'0')}/${String(total).padStart(2,'0')}</div></div>
+      <div class="qstem">${esc(q.stem)}</div>
+      ${inputHtml}
+      <div class="conf"><span class="clabel">把握度</span><div class="stars">${starsHtml}</div></div>
+      <div class="btns">${btnHtml}</div>
+    </div>`;
+}
+
+// Delegate quiz events
+document.addEventListener('click', (e) => {
+  if (!document.getElementById('tab-quiz').classList.contains('active')) return;
+  const opt = e.target.closest('.opt');
+  if (opt && !document.querySelector('.opts.submitted')) {
+    const oi = parseInt(opt.dataset.oi);
+    if (!answers[qIdx]) answers[qIdx] = {};
+    answers[qIdx].student_answer = labelOf(oi);
+    document.querySelectorAll('.opt').forEach(el => el.classList.remove('sel'));
+    opt.classList.add('sel');
+    const btn = document.getElementById('submitBtn');
+    if (btn) btn.disabled = false;
+    return;
+  }
+  const star = e.target.closest('.star');
+  if (star) {
+    confidence = parseInt(star.dataset.c);
+    document.querySelectorAll('.star').forEach((s, i) => s.classList.toggle('on', i < confidence));
+    return;
+  }
+});
+
+document.addEventListener('input', (e) => {
+  if (e.target.id === 'textAns') {
+    if (!answers[qIdx]) answers[qIdx] = {};
+    answers[qIdx].student_answer = e.target.value;
+    const btn = document.getElementById('submitBtn');
+    if (btn) btn.disabled = !e.target.value.trim();
+  }
+});
+
+function nextQ() {
+  const ans = answers[qIdx] || {};
+  if (!ans.student_answer) return;
+  ans.duration_sec = Math.floor((Date.now() - qStartTs) / 1000);
+  ans.confidence = confidence;
+  answers[qIdx] = ans;
+  if (qIdx < questions.length - 1) {
+    qIdx++;
+    qStartTs = Date.now();
+    confidence = 3;
+    renderQuiz();
+  }
+}
+
+async function confirmSubmit() {
+  const ans = answers[qIdx] || {};
+  if (!ans.student_answer) return;
+  ans.duration_sec = Math.floor((Date.now() - qStartTs) / 1000);
+  ans.confidence = confidence;
+  answers[qIdx] = ans;
+
+  const unanswered = [];
+  questions.forEach((_, i) => { if (!answers[i] || !answers[i].student_answer || !answers[i].student_answer.trim()) unanswered.push(i + 1); });
+  if (unanswered.length > 0 && !confirm(`第 ${unanswered.join(', ')} 题未作答，确定交卷？`)) return;
+  if (unanswered.length === 0 && !confirm('确定交卷？')) return;
+
+  document.getElementById('quizRoot').innerHTML = '<div class="card loading-state">判题中，请稍候...</div>';
+
+  const results = await submitExam();
+  results.forEach((r, i) => {
+    if (!answers[i]) answers[i] = {};
+    answers[i].is_correct = r.is_correct;
+    answers[i].reason = r.reason;
+    answers[i].method = r.method;
+  });
+  showQuizResult(results);
+}
+
+async function submitExam() {
+  const payload = {
+    student_id: STUDENT_ID,
+    answers: questions.map((q, i) => ({
+      question_type: q.question_type, student_answer: (answers[i] && answers[i].student_answer) || '',
+      correct_answer: q.correct_answer, stem: q.stem, explanation: q.explanation || '',
+      source: q.source || '', topic: q.topic || '', difficulty: q.difficulty || '',
+      duration_sec: (answers[i] && answers[i].duration_sec) || 0,
+      confidence: (answers[i] && answers[i].confidence) || 3,
+    })),
+  };
+  try {
+    const res = await fetch('/api/submit-exam', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(60000),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.ok) return data.results;
+    }
+  } catch(e) {}
+  return questions.map((q, i) => {
+    const a = answers[i] || {};
+    const given = String(a.student_answer || '').trim();
+    const correct = String(q.correct_answer || '').trim();
+    let ok = false;
+    if (!given) ok = false;
+    else if (q.question_type === 'choice') ok = given.toUpperCase() === correct.toUpperCase();
+    else ok = given === correct;
+    return { is_correct: ok, reason: '本地判定（降级）', method: 'fallback', correct_answer: q.correct_answer, explanation: q.explanation || '' };
+  });
+}
+
+function showQuizResult(results) {
+  const correct = results.filter(r => r && r.is_correct).length;
+  const total = questions.length;
+  const accuracy = total > 0 ? Math.round(correct / total * 100) : 0;
+  const highConfWrong = results.filter((r, i) => r && !r.is_correct && (answers[i] && answers[i].confidence >= 4)).length;
+
+  let reviewHtml = '';
+  questions.forEach((q, i) => {
+    const a = answers[i] || {}, r = results[i] || {};
+    const ok = r.is_correct;
+    reviewHtml += `<div class="ritem ${ok?'r-ok':'r-no'}">
+      <div>${ok?'✓':'✗'}</div>
+      <div>
+        <div style="font-weight:500;margin-bottom:2px;">${i+1}. ${esc(q.stem)}</div>
+        <div style="font-size:12px;color:#8B8680;">
+          你的：${esc(a.student_answer||'未答')} | 正确：${esc(q.correct_answer)} | ${a.duration_sec||0}s | ${'★'.repeat(a.confidence||0)}
+          ${r.method==='llm'?' | 🤖 LLM':r.method==='fallback'?' | ⚠️ 降级':''}
+          ${r.reason?'<br>'+esc(r.reason):''}
+        </div>
+      </div>
+    </div>`;
+  });
+
+  document.getElementById('quizRoot').innerHTML = `
+    <div class="card qresult">
+      <div class="big">${accuracy}<span>%</span></div>
+      <div style="color:#8B8680;font-size:14px;">${accuracy>=80?'非常棒！':accuracy>=60?'不错，继续加油':'别灰心，多练几次'}</div>
+      <div class="stats">
+        <div class="stat"><div class="val">${correct}/${total}</div><div class="lbl">正确</div></div>
+        <div class="stat"><div class="val">${accuracy}%</div><div class="lbl">正确率</div></div>
+        <div class="stat"><div class="val">${highConfWrong}</div><div class="lbl">高信心错误</div></div>
+      </div>
+      <div class="review"><h3>答题回顾</h3>${reviewHtml}</div>
+      <button class="btn btn-next" style="margin-top:16px;width:100%;" onclick="switchTab('profile')">查看画像 →</button>
+      <button class="btn btn-submit" style="margin-top:8px;width:100%;" onclick="questions=[];switchTab('generate')">重新出题</button>
+    </div>`;
+}
+
+// ═══════════════════════════════════
+// Tab 3: Profile
+// ═══════════════════════════════════
+async function loadProfile() {
+  const root = document.getElementById('profileRoot');
+  root.innerHTML = '<div class="loading-state">加载中...</div>';
+  try {
+    const res = await fetch('/api/profile?student_id=' + encodeURIComponent(STUDENT_ID));
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const d = await res.json();
+    if (!d.ok) throw new Error(d.error || '未知错误');
+    if (d.total_attempts === 0) {
+      root.innerHTML = `<div class="empty-state">📭 暂无作答记录<br><span style="font-size:13px;color:#B5B0A8;">去 <a href="#" onclick="switchTab('quiz');return false;" style="color:#B8894F;">答题</a> 积累数据</span></div>`;
+      return;
+    }
+    renderProfile(d);
+  } catch(e) {
+    root.innerHTML = `<div class="empty-state" style="color:#B55A4A;">❌ 加载失败：${e.message}</div>`;
+  }
+}
+
+function renderProfile(d) {
+  const mastery = d.mastery_summary || {};
+  const topics = d.topics || [];
+  const rec = d.recommendation || {};
+  const errDist = d.error_distribution || {};
+  const risks = d.risk_signals || [];
+
+  let pills = '';
+  for (const [k, v] of Object.entries(mastery)) {
+    if (v > 0) pills += `<span class="pill ${k}">${ML_LABELS[k]||k} ${v}</span>`;
+  }
+
+  let html = `
+  <div class="overview">
+    <div class="stat-card"><div class="pval">${fmtPct(d.overall_accuracy)}</div><div class="plbl">整体正确率</div></div>
+    <div class="stat-card"><div class="pval">${d.total_attempts}</div><div class="plbl">总作答次数</div></div>
+    <div class="stat-card"><div class="pval">${topics.length}</div><div class="plbl">覆盖知识点</div></div>
+    <div class="stat-card">
+      <div class="pval" style="font-size:22px;">${mastery.mastered||0}<span style="font-size:14px;color:#8B8680;">/${topics.length}</span></div>
+      <div class="plbl">已掌握</div>
+      <div class="mastery-pills">${pills}</div>
+    </div>
+  </div>`;
+
+  // Topics
+  html += `<div class="card"><div class="sec-title">知识点掌握概率 · P(L) + Thompson Sampling</div>`;
+  if (topics.length === 0) {
+    html += '<div class="empty-state" style="padding:24px;">暂无知识点数据</div>';
+  } else {
+    for (const t of topics) {
+      const bkt = t.bkt, bandit = t.bandit;
+      const pL = bkt ? bkt.p_mastery : 0;
+      const barColor = pLColor(pL);
+      html += `<div class="topic-row">
+        <div class="topic-name">
+          <span class="tsid">${esc(t.section_id)}</span>${esc(t.topic) || esc(t.section_id)}
+          ${t.dominant_error_type?`<span class="terr">${esc(t.dominant_error_type)}</span>`:''}
+          <span class="ml-badge ${t.mastery_level}">${ML_LABELS[t.mastery_level]||t.mastery_level}</span>
+        </div>
+        <div class="pl-bar-wrap">
+          <div class="pl-bar-bg"><div class="pl-bar-fill" style="width:${Math.round(pL*100)}%;background:${barColor};"></div></div>
+          <div class="pl-bar-label">P(L)=${fmtPct(pL)} (${bkt?bkt.correct_count:0}/${bkt?bkt.total_attempts:0})</div>
+        </div>`;
+      if (bandit) {
+        const betaId = 'bt_' + t.section_id.replace(/[.\s]/g,'_');
+        html += `<div class="beta-mini"><canvas id="${betaId}" width="80" height="32"></canvas>
+          <div class="beta-params">α=${bandit.alpha.toFixed(1)}<br>β=${bandit.beta.toFixed(1)}</div></div>`;
+      } else {
+        html += '<div></div>';
+      }
+      html += '</div>';
+    }
+  }
+  html += '</div>';
+
+  // Recommendation
+  html += `<div class="card"><div class="sec-title">推荐练习计划</div>`;
+  if (rec.items && rec.items.length > 0) {
+    html += `<table class="rec-table"><thead><tr><th>#</th><th>章节</th><th>P(L)</th><th>难度</th><th>题型</th><th>题数</th></tr></thead><tbody>`;
+    rec.items.forEach((item, i) => {
+      html += `<tr><td style="color:#B8894F;font-weight:600;">${i+1}</td>
+        <td>${esc(item.section_id)} ${esc(item.topic||'')}</td>
+        <td>${fmtPct(item.p_mastery)}</td>
+        <td>${DIFF_LABELS[item.difficulty]||item.difficulty}</td>
+        <td>${(item.question_types||[]).join(', ')}</td>
+        <td>${item.recommended_count}</td></tr>`;
+    });
+    html += `</tbody></table>`;
+    html += `<div class="rec-reason">📋 ${esc(rec.reason)}（共 ${rec.target_count} 题）</div>`;
+  } else {
+    html += '<div class="empty-state" style="padding:24px;">暂无推荐数据</div>';
+  }
+  html += '</div>';
+
+  // Error + Risk
+  html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">';
+  html += '<div class="card"><div class="sec-title">错因分布</div>';
+  const errEntries = Object.entries(errDist);
+  if (errEntries.length > 0) {
+    const maxCnt = Math.max(...errEntries.map(e => e[1]));
+    for (const [label, cnt] of errEntries) {
+      html += `<div class="err-bar"><span class="err-label">${esc(label)}</span><div class="err-track"><div class="err-fill" style="width:${maxCnt>0?Math.round(cnt/maxCnt*100):0}%;"></div></div><span class="err-cnt">${cnt} 次</span></div>`;
+    }
+  } else { html += '<div class="empty-state" style="padding:24px;">暂无错因标签</div>'; }
+  html += '</div>';
+  html += '<div class="card"><div class="sec-title">风险信号</div>';
+  if (risks.length > 0) {
+    for (const r of risks) html += `<div class="risk-item">⚠️ ${esc(r)}</div>`;
+  } else { html += '<div class="empty-state" style="padding:24px;">✅ 无异常信号</div>'; }
+  html += '</div></div>';
+
+  document.getElementById('profileRoot').innerHTML = html;
+
+  // Draw Beta canvases
+  for (const t of topics) {
+    if (t.bandit) drawBeta('bt_' + t.section_id.replace(/[.\s]/g,'_'), t.bandit.alpha, t.bandit.beta);
+  }
+}
+
+// ═══════════════════════════════════
+// Beta PDF canvas
+// ═══════════════════════════════════
+function drawBeta(canvasId, alpha, beta) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
+  const N = 80, pts = []; let maxY = 0;
+  for (let i = 0; i <= N; i++) {
+    const x = 0.01 + i/N*0.98, y = betaPDF(x, alpha, beta);
+    pts.push({x,y}); if (y>maxY) maxY=y;
+  }
+  const pad=2, plotW=W-pad*2, plotH=H-pad*2;
+  if (maxY===0||!isFinite(maxY)) return;
+  ctx.fillStyle='rgba(184,137,79,0.15)'; ctx.beginPath(); ctx.moveTo(pad,H-pad);
+  for (const pt of pts) ctx.lineTo(pad+pt.x*plotW, H-pad-(pt.y/maxY)*plotH);
+  ctx.lineTo(W-pad,H-pad); ctx.closePath(); ctx.fill();
+  ctx.strokeStyle='#B8894F'; ctx.lineWidth=1.2; ctx.beginPath();
+  let first=true;
+  for (const pt of pts) { const sx=pad+pt.x*plotW, sy=H-pad-(pt.y/maxY)*plotH; if(first){ctx.moveTo(sx,sy);first=false;} else ctx.lineTo(sx,sy); }
+  ctx.stroke();
+  const mean=alpha/(alpha+beta), mx=pad+mean*plotW;
+  ctx.strokeStyle='rgba(181,90,74,0.4)'; ctx.lineWidth=1; ctx.setLineDash([2,2]);
+  ctx.beginPath(); ctx.moveTo(mx,pad); ctx.lineTo(mx,H-pad); ctx.stroke(); ctx.setLineDash([]);
+}
+function betaPDF(x,a,b){ return Math.exp((a-1)*Math.log(x)+(b-1)*Math.log(1-x)-lbeta(a,b)); }
+function lbeta(a,b){ return lgamma(a)+lgamma(b)-lgamma(a+b); }
+function lgamma(x){
+  if(x<0.5) return Math.log(Math.PI/Math.sin(Math.PI*x))-lgamma(1-x);
+  x-=1; return 0.5*Math.log(2*Math.PI)+(x+0.5)*Math.log(x+5.5)-(x+5.5)+Math.log(1+1/12/(x+5.5)+1/288/(x+5.5)/(x+5.5));
+}
+
+// ═══════════════════════════════════
+// Helpers
+// ═══════════════════════════════════
+function labelOf(i) { return String.fromCharCode(65+i); }
+function fmtPct(v) { return Math.round((v||0)*100)+'%'; }
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function pLColor(p) { if(p<0.3)return'#B55A4A'; if(p<0.5)return'#D4956A'; if(p<0.7)return'#C49A5E'; if(p<0.85)return'#8AAA6A'; return'#4A7C59'; }
+
+// ═══════════════════════════════════
+// Init
+// ═══════════════════════════════════
+fetchQuestions();
+loadAnalysisReports();
+</script>
+</body>
+</html>

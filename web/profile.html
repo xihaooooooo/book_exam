@@ -165,7 +165,10 @@
 <div class="wrap">
   <div class="header">
     <h1>🎓 学习画像</h1>
-    <a href="quiz.html">→ 答题</a>
+    <div style="display:flex;gap:14px;">
+      <a href="index.html">速通</a>
+      <a href="quiz.html">答题</a>
+    </div>
   </div>
 
   <!-- Content area -->
@@ -242,7 +245,7 @@ function render(d) {
 
       html += `<div class="topic-row">
         <div class="topic-name">
-          <span class="sid">${esc(t.section_id)}</span>${esc(t.topic)}
+          <span class="sid">${esc(t.section_id)}</span>${esc(t.topic) || esc(t.section_id)}
           ${errLabel ? `<span class="err">${esc(errLabel)}</span>` : ''}
           <span class="ml-badge ${t.mastery_level}">${ML_LABELS[t.mastery_level]||t.mastery_level}</span>
         </div>

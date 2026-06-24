@@ -23,11 +23,13 @@ if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
 from exam.graph.judge_graph import JudgeGraph
+from exam.graph.exam_graph import ExamGraph
 from exam.student_profile.storage import init_attempts_db, init_error_labels_db, record_attempts_batch
 from exam.student_profile.profile_engine import build_profile, compute_session_rewards, normalize_section_id
 from exam.student_profile.recommendation import init_bandit_states, build_recommendation_plan
 from exam.student_profile.schemas import ERROR_TYPE_LABELS
-from exam.agents.utils.agent_utils import create_llm_client
+from exam.agents.utils.agent_utils import create_llm_client, build_toc_from_db
+from exam.config import DEFAULT_CONFIG
 
 logging.basicConfig(level=logging.INFO, format="[server] %(message)s")
 logger = logging.getLogger(__name__)
@@ -127,6 +129,31 @@ def _demo_questions():
     ]
 
 
+def _list_analysis_reports() -> list[dict]:
+    """列出 analysis/ 目录下所有可用的往年试卷分析报告。"""
+    analysis_dir = os.path.join(os.path.dirname(__file__), "..", "analysis")
+    if not os.path.isdir(analysis_dir):
+        return []
+    reports = []
+    for f in sorted(os.listdir(analysis_dir)):
+        if f.endswith(".json"):
+            fpath = os.path.join(analysis_dir, f)
+            try:
+                with open(fpath, "r", encoding="utf-8") as fh:
+                    meta = json.load(fh)
+                exams = meta.get("exams", [])
+                agg = meta.get("aggregated", {})
+                reports.append({
+                    "filename": f,
+                    "path": os.path.abspath(fpath),
+                    "exam_count": len(exams),
+                    "total_questions": agg.get("total_questions", 0),
+                })
+            except Exception:
+                reports.append({"filename": f, "path": os.path.abspath(fpath), "exam_count": 0, "total_questions": 0})
+    return reports
+
+
 def get_questions():
     loaded = _load_latest_output()
     if loaded:
@@ -154,12 +181,21 @@ class QuizHandler(SimpleHTTPRequestHandler):
         if parsed.path == "/api/profile":
             self._handle_profile()
             return
+        if parsed.path == "/api/analysis-reports":
+            self._serve_json(_list_analysis_reports())
+            return
         super().do_GET()
 
     def do_POST(self):
         parsed = urlparse(self.path)
         if parsed.path == "/api/submit-exam":
             self._handle_submit_exam()
+            return
+        if parsed.path == "/api/generate":
+            self._handle_generate()
+            return
+        if parsed.path == "/api/analyze-exam":
+            self._handle_analyze_exam()
             return
         self.send_error(404)
 
@@ -241,7 +277,28 @@ class QuizHandler(SimpleHTTPRequestHandler):
                 session_rewards=session_rewards,
             )
 
-            # 6. 组装 topics（BKT + Bandit 合并，按 P(L) 升序）
+            # 6. 从 sections.db 查章节标题，丰富 topic 展示
+            section_titles: dict[str, str] = {}
+            sections_db = os.path.join(os.path.dirname(__file__), "..", "cache", "sections.db")
+            if os.path.exists(sections_db):
+                try:
+                    import sqlite3 as _sql
+                    import re as _re
+                    _conn = _sql.connect(sections_db)
+                    _rows = _conn.execute("SELECT id, title FROM sections").fetchall()
+                    _conn.close()
+                    # 去 LaTeX 标记（$...$ 和 \mathrm{...} 等），合并多余空格
+                    _latex_re = _re.compile(r"\$.*?\$|\\mathrm|\\mathbf|\\mathit|\\text|\\[a-z]+\{|\}|\\")
+                    _space_re = _re.compile(r"\s{2,}")
+                    for r in _rows:
+                        if r[0] and r[1]:
+                            clean = _latex_re.sub("", r[1])
+                            clean = _space_re.sub(" ", clean).strip()
+                            section_titles[r[0]] = clean or r[1]
+                except Exception:
+                    pass
+
+            # 7. 组装 topics（BKT + Bandit 合并，按 P(L) 升序）
             bandit_map = {bs.section_id: bs for bs in bandit_states.values()}
 
             def _topic_sort_key(t):
@@ -252,14 +309,16 @@ class QuizHandler(SimpleHTTPRequestHandler):
 
             topics_json = []
             for t in sorted_topics:
+                # 优先用 attempt 里的 topic，其次用 sections.db 的标题
+                display_title = t.topic or section_titles.get(t.section_id, "")
                 entry = {
                     "section_id": t.section_id,
-                    "topic": t.topic,
+                    "topic": display_title,
                     "total_attempts": t.total_attempts,
                     "accuracy": t.accuracy,
                     "recent_accuracy": t.recent_accuracy,
                     "mastery_level": t.mastery_level,
-                    "dominant_error_type": t.dominant_error_type,
+                    "dominant_error_type": ERROR_TYPE_LABELS.get(t.dominant_error_type, t.dominant_error_type),
                     "streak_wrong": t.streak_wrong,
                 }
                 if t.bkt_state is not None:
@@ -309,6 +368,119 @@ class QuizHandler(SimpleHTTPRequestHandler):
         except Exception:
             logger.exception("profile API 失败")
             self._serve_json({"ok": False, "error": "画像构建失败，查看服务器日志"}, status=500)
+
+    def _handle_generate(self):
+        global QUESTIONS
+
+        length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(length) if length else b"{}"
+        try:
+            data = json.loads(body)
+        except json.JSONDecodeError as e:
+            self._serve_json({"ok": False, "error": f"JSON 解析失败: {e}"}, status=400)
+            return
+
+        mode = data.get("mode", "exam")
+        student_id = data.get("student_id", "default").strip()
+        focus = data.get("focus", "").strip()
+        target_count = data.get("count", 0)
+        allowed_types = data.get("types", "").strip()
+        analysis_report = data.get("analysis_report", "").strip()
+
+        if mode == "practice" and not student_id:
+            self._serve_json({"ok": False, "error": "practice 模式需要 student_id"}, status=400)
+            return
+
+        config = DEFAULT_CONFIG.copy()
+        db_path = config.get("db_path", "cache/sections.db")
+
+        if not os.path.exists(db_path):
+            self._serve_json({"ok": False, "error": f"数据库 {db_path} 不存在"}, status=500)
+            return
+
+        try:
+            toc = build_toc_from_db(db_path)
+            exam = ExamGraph(config=config, debug=False)
+            _, questions = exam.propagate(
+                db_path=db_path, toc=toc,
+                focus=focus, target_count=target_count,
+                allowed_types=allowed_types,
+                analysis_report_path=analysis_report,
+                mode=mode, student_id=student_id,
+            )
+            QUESTIONS = get_questions()
+            logger.info("generate: mode=%s, student=%s, count=%d, reloaded=%d",
+                        mode, student_id, len(questions), len(QUESTIONS))
+            self._serve_json({
+                "ok": True,
+                "count": len(questions),
+                "mode": mode,
+            })
+        except Exception:
+            logger.exception("generate API 失败")
+            self._serve_json({"ok": False, "error": "出题失败，查看服务器日志"}, status=500)
+
+    def _handle_analyze_exam(self):
+        import base64, tempfile
+        from exam.parsers import parse_docx
+        from exam.analyzers import analyze_exam, generate_report
+
+        length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(length) if length else b"{}"
+        try:
+            data = json.loads(body)
+        except json.JSONDecodeError as e:
+            self._serve_json({"ok": False, "error": f"JSON 解析失败: {e}"}, status=400)
+            return
+
+        filename = data.get("filename", "exam.docx")
+        b64 = data.get("data_base64", "")
+        if not b64:
+            self._serve_json({"ok": False, "error": "缺少文件数据"}, status=400)
+            return
+
+        try:
+            raw = base64.b64decode(b64)
+        except Exception:
+            self._serve_json({"ok": False, "error": "文件数据解码失败"}, status=400)
+            return
+
+        # 写入临时文件
+        tmpdir = tempfile.mkdtemp(prefix="exam_upload_")
+        tmp_path = os.path.join(tmpdir, filename)
+        with open(tmp_path, "wb") as f:
+            f.write(raw)
+
+        try:
+            # 解析 → LLM 分析 → 生成报告
+            parsed = parse_docx(tmp_path)
+            logger.info("analyze-exam: 解析完成 %s (%d 分组)", filename,
+                        len(parsed.get("sections", [])))
+            result = analyze_exam(parsed, DEFAULT_CONFIG.copy())
+            q_count = len(result.get("questions", []))
+            logger.info("analyze-exam: LLM 分析完成, %d 道题", q_count)
+
+            analysis_dir = os.path.join(os.path.dirname(__file__), "..", "analysis")
+            os.makedirs(analysis_dir, exist_ok=True)
+            json_path = generate_report([result], analysis_dir)
+            report_file = os.path.basename(json_path)
+
+            self._serve_json({
+                "ok": True,
+                "filename": report_file,
+                "path": os.path.abspath(json_path),
+                "questions": q_count,
+            })
+        except Exception as e:
+            logger.exception("analyze-exam 失败")
+            self._serve_json({"ok": False, "error": str(e)[:200]}, status=500)
+        finally:
+            # 清理临时文件
+            try:
+                os.remove(tmp_path)
+                os.rmdir(tmpdir)
+            except Exception:
+                pass
 
     def _serve_json(self, data, status=200):
         body = json.dumps(data, ensure_ascii=False).encode("utf-8")

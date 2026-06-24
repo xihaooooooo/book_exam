@@ -23,32 +23,8 @@ if sys.platform == "win32":
         pass
 
 from exam.graph.exam_graph import ExamGraph
-from exam.agents.utils.agent_utils import init_mistakes_db, get_weak_sections
+from exam.agents.utils.agent_utils import init_mistakes_db, get_weak_sections, build_toc_from_db
 from exam.config import DEFAULT_CONFIG
-
-
-def _build_toc_from_db(db_path: str) -> list[dict]:
-    """从 SQLite sections 表重建 TOC 结构。"""
-    conn = sqlite3.connect(db_path)
-    rows = conn.execute(
-        "SELECT id, chapter, title FROM sections ORDER BY page_start, id"
-    ).fetchall()
-    conn.close()
-
-    if not rows:
-        return []
-
-    chapters = {}
-    for section_id, chapter, title in rows:
-        ch = chapter or "正文"
-        if ch not in chapters:
-            chapters[ch] = []
-        chapters[ch].append({"id": section_id, "title": title or section_id})
-
-    return [
-        {"chapter": ch, "sections": secs}
-        for ch, secs in chapters.items()
-    ]
 
 
 def derive_params(mode, student_id, db_path, user_focus, user_count, user_types):
@@ -123,7 +99,7 @@ def main():
     init_mistakes_db(mistakes_db)
 
     print(f"从数据库读取：{total} 节（{done} 节有正文）")
-    toc = _build_toc_from_db(db_path)
+    toc = build_toc_from_db(db_path)
     print(f"  解析出 {len(toc)} 章")
 
     if args.from_analysis and not os.path.exists(args.from_analysis):
