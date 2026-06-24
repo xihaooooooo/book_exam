@@ -24,6 +24,9 @@ if _project_root not in sys.path:
 
 from exam.graph.judge_graph import JudgeGraph
 from exam.student_profile.storage import init_attempts_db, init_error_labels_db, record_attempts_batch
+from exam.student_profile.profile_engine import build_profile, compute_session_rewards, normalize_section_id
+from exam.student_profile.recommendation import init_bandit_states, build_recommendation_plan
+from exam.student_profile.schemas import ERROR_TYPE_LABELS
 from exam.agents.utils.agent_utils import create_llm_client
 
 logging.basicConfig(level=logging.INFO, format="[server] %(message)s")
@@ -148,6 +151,9 @@ class QuizHandler(SimpleHTTPRequestHandler):
         if parsed.path == "/api/questions/demo":
             self._serve_json(_demo_questions())
             return
+        if parsed.path == "/api/profile":
+            self._handle_profile()
+            return
         super().do_GET()
 
     def do_POST(self):
@@ -169,9 +175,10 @@ class QuizHandler(SimpleHTTPRequestHandler):
         try:
             student_id = data.get("student_id", "")
 
-            # ① 修复字段映射 + 下沉 student_id
+            # ① 修复字段映射 + 下沉 student_id + 归一化章节编号
             for ans in data.get("answers", []):
                 ans["section_id"] = ans.pop("source", ans.get("section_id", ""))
+                ans["section_id"] = normalize_section_id(ans["section_id"])
                 ans["student_id"] = student_id
 
             # ② 调判题图（answers 原地填充 is_correct / reason / method）
@@ -196,6 +203,112 @@ class QuizHandler(SimpleHTTPRequestHandler):
         except Exception as e:
             logger.exception("submit-exam 失败")
             self._serve_json({"ok": False, "error": str(e)}, status=400)
+
+    def _handle_profile(self):
+        from urllib.parse import parse_qs
+        from dataclasses import asdict
+
+        parsed = urlparse(self.path)
+        params = parse_qs(parsed.query)
+        student_id = params.get("student_id", [""])[0].strip()
+
+        if not student_id:
+            self._serve_json({"ok": False, "error": "缺少 student_id 参数"}, status=400)
+            return
+
+        try:
+            # 1. 构建 BKT 画像
+            profile = build_profile(student_id, ATTEMPTS_DB, mastery_backend="bkt")
+
+            # 2. 提取 BKT states + error_map
+            bkt_states = []
+            error_map: dict[str, str] = {}
+            for t in profile.topics:
+                if t.bkt_state is not None:
+                    bkt_states.append(t.bkt_state)
+                if t.dominant_error_type:
+                    error_map[t.section_id] = t.dominant_error_type
+
+            # 3. Session 奖励（Phase 2）
+            session_rewards = compute_session_rewards(ATTEMPTS_DB, student_id)
+
+            # 4. Bandit 状态
+            bandit_states = init_bandit_states(bkt_states, session_rewards)
+
+            # 5. 推荐计划
+            plan = build_recommendation_plan(
+                bkt_states, error_map, student_id, target_count=20,
+                session_rewards=session_rewards,
+            )
+
+            # 6. 组装 topics（BKT + Bandit 合并，按 P(L) 升序）
+            bandit_map = {bs.section_id: bs for bs in bandit_states.values()}
+
+            def _topic_sort_key(t):
+                bkt = t.bkt_state
+                return bkt.p_mastery if bkt else 1.0
+
+            sorted_topics = sorted(profile.topics, key=_topic_sort_key)
+
+            topics_json = []
+            for t in sorted_topics:
+                entry = {
+                    "section_id": t.section_id,
+                    "topic": t.topic,
+                    "total_attempts": t.total_attempts,
+                    "accuracy": t.accuracy,
+                    "recent_accuracy": t.recent_accuracy,
+                    "mastery_level": t.mastery_level,
+                    "dominant_error_type": t.dominant_error_type,
+                    "streak_wrong": t.streak_wrong,
+                }
+                if t.bkt_state is not None:
+                    entry["bkt"] = {
+                        "p_mastery": t.bkt_state.p_mastery,
+                        "p_initial": t.bkt_state.p_initial,
+                        "total_attempts": t.bkt_state.total_attempts,
+                        "correct_count": t.bkt_state.correct_count,
+                        "params": asdict(t.bkt_state.params),
+                    }
+                bs = bandit_map.get(t.section_id)
+                if bs is not None:
+                    entry["bandit"] = {
+                        "alpha": bs.alpha,
+                        "beta": bs.beta,
+                    }
+                topics_json.append(entry)
+
+            # 7. 错因分布（中文 key）
+            error_dist = {}
+            for etype, cnt in profile.error_distribution.items():
+                label = ERROR_TYPE_LABELS.get(etype, etype)
+                error_dist[label] = cnt
+
+            # 8. 推荐计划
+            rec_json = {
+                "items": [asdict(item) for item in plan.items],
+                "target_count": plan.target_count,
+                "reason": plan.reason,
+            }
+
+            result = {
+                "ok": True,
+                "student_id": profile.student_id,
+                "overall_accuracy": profile.overall_accuracy,
+                "total_attempts": profile.total_attempts,
+                "mastery_summary": profile.mastery_summary,
+                "topics": topics_json,
+                "recommendation": rec_json,
+                "error_distribution": error_dist,
+                "risk_signals": profile.risk_signals,
+            }
+            logger.info("profile: student=%s, topics=%d, accuracy=%.0f%%",
+                        student_id, len(topics_json), profile.overall_accuracy * 100)
+            self._serve_json(result)
+
+        except Exception:
+            logger.exception("profile API 失败")
+            self._serve_json({"ok": False, "error": "画像构建失败，查看服务器日志"}, status=500)
 
     def _serve_json(self, data, status=200):
         body = json.dumps(data, ensure_ascii=False).encode("utf-8")

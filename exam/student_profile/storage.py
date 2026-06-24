@@ -72,13 +72,13 @@ def record_attempt(db_path: str, **kwargs):
 
 
 def record_attempts_batch(db_path: str, records: list[dict]):
-    """批量写入 attempts，事务保护。student_id 从每条 record 中取。"""
+    """批量写入 attempts，事务保护。同时写入 error_labels（错时）。"""
     db = sqlite3.connect(db_path)
     try:
         with db:
             for r in records:
                 db.execute(
-                    """INSERT OR IGNORE INTO attempts
+                    """INSERT INTO attempts
                        (student_id, section_id, topic, question_type, difficulty,
                         stem, student_answer, correct_answer, explanation,
                         is_correct, duration_sec, confidence, reason, method)
@@ -100,6 +100,28 @@ def record_attempts_batch(db_path: str, records: list[dict]):
                         r.get("method", "rule"),
                     ),
                 )
+                # 如果有 LLM 错因诊断结果，同连接写入 error_labels
+                if r.get("error_type"):
+                    attempt_id = db.execute(
+                        "SELECT last_insert_rowid()"
+                    ).fetchone()[0]
+                    try:
+                        db.execute(
+                            """INSERT INTO attempt_error_labels
+                               (attempt_id, error_type, confidence, source,
+                                evidence, suggestion)
+                               VALUES (?, ?, ?, ?, ?, ?)""",
+                            (
+                                attempt_id,
+                                r["error_type"],
+                                r.get("diagnosis_confidence", 0.85),
+                                "llm",
+                                (r.get("error_evidence") or "")[:500],
+                                (r.get("error_suggestion") or "")[:500],
+                            ),
+                        )
+                    except Exception:
+                        pass  # error_labels 写入失败不影响 attempts
     finally:
         db.close()
 

@@ -66,6 +66,7 @@ def create_chief_editor(config: dict = None):
         tools = [peek_section, get_section_text, get_surrounding_context, search_keyword]
 
         mode = state.get("mode", "exam")
+        practice_plan = state.get("practice_plan") or {}
 
         # ── 策略指令（按 mode 区分选题偏好和难度策略）──
         if mode == "diagnostic":
@@ -79,10 +80,9 @@ def create_chief_editor(config: dict = None):
         elif mode == "practice":
             strategy_instruction = """
 ### 0. 本次任务性质：定向练习
-- 帮助学生补强薄弱章节
-- 弱点章节（练习重点中指定）多出题，约占总量 70%
-- 其余章节扫一遍（约占 30%），避免知识遗忘
-- 弱点章节难度从 easy 开始，可逐步升到 medium
+- 系统已通过 BKT + Thompson Sampling 推荐引擎生成了练习计划（见下方表格）
+- 请严格按表格的优先级、建议题数、建议难度、建议题型出题
+- 其余章节扫 1-2 道即可（约占 20-30%），避免知识遗忘
 """
         else:
             strategy_instruction = ""
@@ -142,7 +142,23 @@ def create_chief_editor(config: dict = None):
         focus_instruction = ""
         if focus:
             if mode == "practice":
-                focus_instruction = f"""
+                rec_table = practice_plan.get("recommendation_table", "")
+                if rec_table:
+                    focus_instruction = f"""
+## 推荐练习计划（BKT + Bandit 引擎生成）
+
+{rec_table}
+
+指导原则：
+- 按优先级从高到低出题，数量按"建议题数"
+- 难度按"建议难度"设定
+- 题型按"建议题型"选择
+- 上述知识点约占 70-80%，其余章节扫 1-2 道防止遗忘
+
+用 get_section_text 读取各节内容后按上述计划出题。
+"""
+                else:
+                    focus_instruction = f"""
 ## 练习重点（系统根据错题库自动生成）
 
 以下章节学生错误率较高，请直接在这些章节出题：
