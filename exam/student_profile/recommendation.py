@@ -102,13 +102,13 @@ def init_bandit_states(
         alpha = 1.0 + k * potential
         beta = 1.0 + k * bkt.p_mastery
 
-        # 叠加 session 奖励（用 improvement room 缩放）
-        # 避免 mastered topic 的 BKT 冷启动 artifact reward 干扰排序
+        # 叠加 session 奖励：正向 delta 只增强 alpha（推荐倾向），
+        # 不增加 beta（不确定性），确保"练后提升"不会反向降权
         reward = session_rewards.get(sid, 0.0)
         if reward > 0:
-            effective = reward * potential  # reward × (1-P(L))
-            alpha += effective
-            beta += (1.0 - effective)
+            reward_boost = reward * potential * 2.0
+            alpha += reward_boost
+            # beta 不变：delta 代表学习能力，不是不确定性
 
         # Phase 4: trend/memory bonuses
         # declining topics → boost α to bring them up
@@ -247,10 +247,11 @@ def build_recommendation_plan(
         qtypes = _recommend_question_types(error_type)
         count = _suggest_count(rank, bkt.p_mastery, total_topics, target_count)
 
-        # 上限控制
+        # 上限控制：达到目标总题数后停止分配
+        if running_count >= target_count:
+            break
         remaining = target_count - running_count
-        if count > remaining and remaining > 0:
-            count = remaining
+        count = min(count, remaining)
         if count <= 0:
             continue
 

@@ -311,15 +311,16 @@ def _bkt_replay(attempts: list, params: BKTParams) -> BKTState:
 def _compute_mastery_bkt(p_mastery: float, total_attempts: int) -> str:
     """将 BKT P(L) 映射到 categorical 掌握等级（用于展示兼容）。
 
-    映射规则（比硬阈值宽松，因为 P(L) 本身已编码了不确定性）：
-      P(L) ≥ 0.85 → mastered
+    映射规则：
+      P(L) ≥ 0.85 且 total_attempts ≥ 5 → mastered（证据充分）
+      P(L) ≥ 0.85 但 total_attempts < 5 → familiar（样本不足，先不标 mastered）
       P(L) ≥ 0.70 → familiar
       P(L) ≥ 0.50 → unstable
       P(L) <  0.50 → weak（或 unknown，如果 attempt 太少）
     """
     if total_attempts < 2:
         return "unknown"
-    if p_mastery >= 0.85:
+    if p_mastery >= 0.85 and total_attempts >= 5:
         return "mastered"
     if p_mastery >= 0.70:
         return "familiar"
