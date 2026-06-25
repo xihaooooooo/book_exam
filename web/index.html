@@ -196,6 +196,11 @@
   .topic-name { font-size: 15px; font-weight: 500; color: #2E2C29; }
   .topic-name .tsid { font-family: "SF Mono","IBM Plex Mono",Menlo,monospace; font-size: 12px; color: #8B8680; margin-right: 6px; }
   .topic-name .terr { display: inline-block; font-size: 11px; color: #B55A4A; margin-left: 8px; padding: 1px 8px; border-radius: 10px; background: rgba(181,90,74,0.08); }
+  .topic-meta { margin-top: 5px; font-size: 11px; color: #8B8680; line-height: 1.5; }
+  .conf-badge { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 8px; font-size: 10px; }
+  .conf-badge.low { color: #9B4A3C; background: rgba(181,90,74,0.10); }
+  .conf-badge.medium { color: #A06838; background: rgba(212,149,106,0.12); }
+  .conf-badge.high { color: #3A6348; background: rgba(74,124,89,0.12); }
   .pl-bar-wrap { position: relative; }
   .pl-bar-bg { height: 8px; border-radius: 4px; background: rgba(0,0,0,0.05); overflow: hidden; }
   .pl-bar-fill { height: 100%; border-radius: 4px; transition: width 0.6s ease, background 0.6s ease; }
@@ -216,6 +221,14 @@
   .rec-table th { text-align: left; padding: 8px 10px; font-weight: 500; letter-spacing: 0.03em; color: #8B8680; border-bottom: 2px solid rgba(0,0,0,0.06); font-size: 11px; }
   .rec-table td { padding: 10px; border-bottom: 1px solid rgba(0,0,0,0.04); color: #3A3632; }
   .rec-reason { font-size: 13px; color: #8B8680; margin-top: 12px; padding: 10px 14px; background: rgba(0,0,0,0.02); border-radius: 10px; line-height: 1.6; }
+  .reason-cell { max-width: 260px; line-height: 1.5; font-size: 12px; color: #6B645D; }
+  .correction-actions { margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap; }
+  .mini-action {
+    border: 1px solid rgba(184,137,79,0.25); background: rgba(255,255,255,0.55);
+    color: #8A6538; border-radius: 6px; padding: 4px 8px; font-size: 11px;
+    font-family: inherit; cursor: pointer;
+  }
+  .mini-action:hover { background: rgba(184,137,79,0.10); }
   .err-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
   .err-bar .err-label { width: 80px; font-size: 13px; color: #5A5650; text-align: right; flex-shrink: 0; }
   .err-bar .err-track { flex: 1; height: 6px; border-radius: 3px; background: rgba(0,0,0,0.04); overflow: hidden; }
@@ -330,6 +343,14 @@ let CURRENT_SESSION_ID = (() => {
 const TYPE_LABELS = { choice:'选择题', fill_blank:'填空题', short_answer:'简答题', comprehensive:'综合题' };
 const DIFF_LABELS = { easy:'简单', medium:'中等', hard:'困难', easy_to_medium:'简单→中等', medium_to_hard:'中等→困难' };
 const ML_LABELS = { mastered:'已掌握', familiar:'熟悉', unstable:'不稳定', weak:'薄弱', unknown:'未知' };
+const ERROR_TYPE_LABELS = {
+  concept_confusion: '概念混淆',
+  memory_gap: '记忆缺失',
+  reasoning_error: '推理错误',
+  misread_question: '审题错误',
+  careless: '粗心失误',
+  transfer_failure: '迁移失败',
+};
 
 // ═══════════════════════════════════
 // Tab switching
@@ -638,6 +659,8 @@ async function confirmSubmit() {
     answers[i].is_correct = r.is_correct;
     answers[i].reason = r.reason;
     answers[i].method = r.method;
+    answers[i].attempt_id = r.attempt_id;
+    answers[i].error_type = r.error_type || '';
   });
   showQuizResult(results);
 }
@@ -691,6 +714,13 @@ function showQuizResult(results) {
   questions.forEach((q, i) => {
     const a = answers[i] || {}, r = results[i] || {};
     const ok = r.is_correct;
+    const attemptId = r.attempt_id || a.attempt_id;
+    const correctionHtml = attemptId ? `<div class="correction-actions">
+      ${ok
+        ? `<button class="mini-action" onclick="correctAttempt(${attemptId}, false, ${i})">标为错误</button>`
+        : `<button class="mini-action" onclick="correctAttempt(${attemptId}, true, ${i})">标为正确</button>
+           <button class="mini-action" onclick="changeErrorType(${attemptId}, ${i})">改错因</button>`}
+    </div>` : '';
     reviewHtml += `<div class="ritem ${ok?'r-ok':'r-no'}">
       <div>${ok?'✓':'✗'}</div>
       <div>
@@ -700,6 +730,7 @@ function showQuizResult(results) {
           ${r.method==='llm'?' | 🤖 LLM':r.method==='fallback'?' | ⚠️ 降级':''}
           ${r.reason?'<br>'+esc(r.reason):''}
         </div>
+        ${correctionHtml}
       </div>
     </div>`;
   });
@@ -717,6 +748,51 @@ function showQuizResult(results) {
       <button class="btn btn-next" style="margin-top:16px;width:100%;" onclick="switchTab('profile')">查看画像 →</button>
       <button class="btn btn-submit" style="margin-top:8px;width:100%;" onclick="questions=[];switchTab('generate')">重新出题</button>
     </div>`;
+}
+
+async function correctAttempt(attemptId, isCorrect, idx, errorType = '') {
+  if (!attemptId) return;
+  if (!isCorrect && !errorType) {
+    errorType = await askErrorType();
+    if (!errorType) return;
+  }
+  try {
+    const res = await fetch('/api/attempt-correction', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ attempt_id: attemptId, is_correct: isCorrect, error_type: errorType }),
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || '修正失败');
+    alert('已修正，刷新画像后生效。');
+    if (answers[idx]) {
+      answers[idx].is_correct = isCorrect;
+      answers[idx].method = 'manual_override';
+      answers[idx].error_type = isCorrect ? '' : errorType;
+    }
+  } catch (e) {
+    alert('修正失败：' + e.message);
+  }
+}
+
+async function changeErrorType(attemptId, idx) {
+  const errorType = await askErrorType();
+  if (!errorType) return;
+  await correctAttempt(attemptId, false, idx, errorType);
+}
+
+async function askErrorType() {
+  const lines = Object.entries(ERROR_TYPE_LABELS)
+    .map(([key, label], i) => `${i + 1}. ${label} (${key})`)
+    .join('\n');
+  const input = prompt(`选择错因编号：\n${lines}`);
+  if (!input) return '';
+  const keys = Object.keys(ERROR_TYPE_LABELS);
+  const n = parseInt(input, 10);
+  if (n >= 1 && n <= keys.length) return keys[n - 1];
+  if (ERROR_TYPE_LABELS[input]) return input;
+  alert('未知错因');
+  return '';
 }
 
 // ═══════════════════════════════════
@@ -765,7 +841,7 @@ function renderProfile(d) {
   </div>`;
 
   // Topics
-  html += `<div class="card"><div class="sec-title">知识点掌握概率 · P(L) + Thompson Sampling</div>`;
+  html += `<div class="card"><div class="sec-title">知识点掌握概率 · P(L) + 数据置信度</div>`;
   if (topics.length === 0) {
     html += '<div class="empty-state" style="padding:24px;">暂无知识点数据</div>';
   } else {
@@ -773,18 +849,25 @@ function renderProfile(d) {
       const bkt = t.bkt, bandit = t.bandit;
       const pL = bkt ? bkt.p_mastery : 0;
       const barColor = pLColor(pL);
+      const confLevel = t.confidence_level || 'low';
+      const confLabel = t.confidence_label || '数据不足';
+      const confReason = t.confidence_reason || '';
+      const betaKey = domKey(`${t.section_id}_${t.topic || ''}`);
       html += `<div class="topic-row">
         <div class="topic-name">
           <span class="tsid">${esc(t.section_id)}</span>${esc(t.topic) || esc(t.section_id)}
           ${t.dominant_error_type?`<span class="terr">${esc(t.dominant_error_type)}</span>`:''}
           <span class="ml-badge ${t.mastery_level}">${ML_LABELS[t.mastery_level]||t.mastery_level}</span>
+          <div class="topic-meta">样本 ${t.evidence_count ?? (bkt?bkt.total_attempts:0)} 次
+            <span class="conf-badge ${confLevel}" title="${esc(confReason)}">${esc(confLabel)}</span>
+          </div>
         </div>
         <div class="pl-bar-wrap">
           <div class="pl-bar-bg"><div class="pl-bar-fill" style="width:${Math.round(pL*100)}%;background:${barColor};"></div></div>
           <div class="pl-bar-label">P(L)=${fmtPct(pL)} (${bkt?bkt.correct_count:0}/${bkt?bkt.total_attempts:0})</div>
         </div>`;
       if (bandit) {
-        const betaId = 'bt_' + t.section_id.replace(/[.\s]/g,'_');
+        const betaId = 'bt_' + betaKey;
         html += `<div class="beta-mini"><canvas id="${betaId}" width="80" height="32"></canvas>
           <div class="beta-params">α=${bandit.alpha.toFixed(1)}<br>β=${bandit.beta.toFixed(1)}</div></div>`;
       } else {
@@ -798,14 +881,15 @@ function renderProfile(d) {
   // Recommendation
   html += `<div class="card"><div class="sec-title">推荐练习计划</div>`;
   if (rec.items && rec.items.length > 0) {
-    html += `<table class="rec-table"><thead><tr><th>#</th><th>章节</th><th>P(L)</th><th>难度</th><th>题型</th><th>题数</th></tr></thead><tbody>`;
+    html += `<table class="rec-table"><thead><tr><th>#</th><th>章节</th><th>P(L)</th><th>难度</th><th>题型</th><th>题数</th><th>推荐原因</th></tr></thead><tbody>`;
     rec.items.forEach((item, i) => {
       html += `<tr><td style="color:#B8894F;font-weight:600;">${i+1}</td>
         <td>${esc(item.section_id)} ${esc(item.topic||'')}</td>
         <td>${fmtPct(item.p_mastery)}</td>
         <td>${DIFF_LABELS[item.difficulty]||item.difficulty}</td>
         <td>${(item.question_types||[]).join(', ')}</td>
-        <td>${item.recommended_count}</td></tr>`;
+        <td>${item.recommended_count}</td>
+        <td class="reason-cell">${esc(item.reason_text || '-')}</td></tr>`;
     });
     html += `</tbody></table>`;
     html += `<div class="rec-reason">📋 ${esc(rec.reason)}（共 ${rec.target_count} 题）</div>`;
@@ -907,7 +991,8 @@ function renderProfile(d) {
 
   // Draw Beta canvases
   for (const t of topics) {
-    if (t.bandit) drawBeta('bt_' + t.section_id.replace(/[.\s]/g,'_'), t.bandit.alpha, t.bandit.beta);
+    const betaKey = domKey(`${t.section_id}_${t.topic || ''}`);
+    if (t.bandit) drawBeta('bt_' + betaKey, t.bandit.alpha, t.bandit.beta);
   }
 }
 
@@ -951,6 +1036,7 @@ function lgamma(x){
 function labelOf(i) { return String.fromCharCode(65+i); }
 function fmtPct(v) { return Math.round((v||0)*100)+'%'; }
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function domKey(s) { return Array.from(String(s||'')).map(c => c.charCodeAt(0).toString(36)).join('_'); }
 function pLColor(p) { if(p<0.3)return'#B55A4A'; if(p<0.5)return'#D4956A'; if(p<0.7)return'#C49A5E'; if(p<0.85)return'#8AAA6A'; return'#4A7C59'; }
 
 // ═══════════════════════════════════

@@ -27,9 +27,15 @@ if _project_root not in sys.path:
 
 from exam.graph.judge_graph import JudgeGraph
 from exam.graph.exam_graph import ExamGraph
-from exam.student_profile.storage import init_attempts_db, init_error_labels_db, record_attempts_batch
+from exam.student_profile.storage import (
+    apply_attempt_correction,
+    init_attempts_db,
+    init_error_labels_db,
+    record_attempts_batch,
+)
 from exam.student_profile.profile_engine import normalize_section_id
 from exam.student_profile.profile_presenter import build_profile_response
+from exam.student_profile.schemas import ERROR_TYPES
 from exam.student_profile.session_service import (
     abort_session,
     complete_learning_session_after_submit,
@@ -143,6 +149,26 @@ def _demo_questions():
     ]
 
 
+def _infer_topic_from_questions(answer: dict) -> str:
+    """Recover topic from the in-memory generated question list when omitted."""
+    stem = answer.get("stem", "")
+    correct = answer.get("correct_answer", "")
+    section_id = answer.get("section_id", "")
+    for q in QUESTIONS:
+        if not q.get("topic"):
+            continue
+        if stem and q.get("stem") == stem:
+            return q.get("topic", "")
+        if (
+            section_id
+            and q.get("source") == section_id
+            and correct
+            and q.get("correct_answer") == correct
+        ):
+            return q.get("topic", "")
+    return ""
+
+
 def _list_analysis_reports() -> list[dict]:
     """列出 analysis/ 目录下所有可用的往年试卷分析报告。"""
     analysis_dir = os.path.join(os.path.dirname(__file__), "..", "analysis")
@@ -205,6 +231,9 @@ class QuizHandler(SimpleHTTPRequestHandler):
         if parsed.path == "/api/submit-exam":
             self._handle_submit_exam()
             return
+        if parsed.path == "/api/attempt-correction":
+            self._handle_attempt_correction()
+            return
         if parsed.path == "/api/generate":
             self._handle_generate()
             return
@@ -249,6 +278,8 @@ class QuizHandler(SimpleHTTPRequestHandler):
             for ans in data.get("answers", []):
                 ans["section_id"] = ans.pop("source", ans.get("section_id", ""))
                 ans["section_id"] = normalize_section_id(ans["section_id"])
+                if not ans.get("topic"):
+                    ans["topic"] = _infer_topic_from_questions(ans)
                 ans["student_id"] = student_id
 
             # ② 调判题图（answers 原地填充 is_correct / reason / method）
@@ -271,12 +302,14 @@ class QuizHandler(SimpleHTTPRequestHandler):
 
             # ⑤ 返回结果
             results = [{
+                "attempt_id": attempt_ids[i] if i < len(attempt_ids) else None,
                 "is_correct": a["is_correct"],
                 "reason": a["reason"],
                 "method": a.get("method", "rule"),
                 "correct_answer": a["correct_answer"],
                 "explanation": a.get("explanation", ""),
-            } for a in result["answers"]]
+                "error_type": a.get("error_type", ""),
+            } for i, a in enumerate(result["answers"])]
 
             response = {"ok": True, "results": results}
             if session_effect:
@@ -287,6 +320,42 @@ class QuizHandler(SimpleHTTPRequestHandler):
 
         except Exception as e:
             logger.exception("submit-exam 失败")
+            self._serve_json({"ok": False, "error": str(e)}, status=400)
+
+    def _handle_attempt_correction(self):
+        length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(length) if length else b"{}"
+        try:
+            data = json.loads(body)
+        except json.JSONDecodeError as e:
+            self._serve_json({"ok": False, "error": f"JSON 解析失败: {e}"}, status=400)
+            return
+
+        try:
+            attempt_id = int(data.get("attempt_id") or 0)
+            is_correct = bool(data.get("is_correct"))
+            error_type = (data.get("error_type") or "").strip()
+            if not attempt_id:
+                self._serve_json({"ok": False, "error": "缺少 attempt_id"}, status=400)
+                return
+            if not is_correct and error_type and error_type not in ERROR_TYPES:
+                self._serve_json({"ok": False, "error": "未知错因类型"}, status=400)
+                return
+
+            ok = apply_attempt_correction(
+                ATTEMPTS_DB,
+                attempt_id=attempt_id,
+                student_id=DEFAULT_STUDENT_ID,
+                is_correct=is_correct,
+                error_type=error_type,
+                reason="用户手动修正",
+            )
+            if not ok:
+                self._serve_json({"ok": False, "error": "未找到可修正的作答记录"}, status=404)
+                return
+            self._serve_json({"ok": True})
+        except Exception as e:
+            logger.exception("attempt correction 失败")
             self._serve_json({"ok": False, "error": str(e)}, status=400)
 
     def _handle_profile(self):

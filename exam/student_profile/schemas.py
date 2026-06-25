@@ -139,6 +139,8 @@ class RecommendationItem:
     question_types: list[str]  # 推荐题型
     recommended_count: int     # 建议题数
     dominant_error_type: str = ""
+    reason_tags: list[str] = field(default_factory=list)
+    reason_text: str = ""
 
 
 @dataclass
@@ -158,8 +160,8 @@ class RecommendationPlan:
             return "（无推荐计划数据）"
 
         header = (
-            "| 优先级 | 章节 | 掌握度 P(L) | 主要错因 | 建议题型 | 建议难度 | 建议题数 |\n"
-            "|--------|------|------------|----------|----------|----------|----------|"
+            "| 优先级 | 章节 | 掌握度 P(L) | 主要错因 | 建议题型 | 建议难度 | 建议题数 | 推荐原因 |\n"
+            "|--------|------|------------|----------|----------|----------|----------|----------|"
         )
         rows = [header]
         for i, item in enumerate(self.items, 1):
@@ -167,6 +169,7 @@ class RecommendationPlan:
             types = ",".join(item.question_types)
             rows.append(
                 f"| {i} | {item.section_id} {item.topic} | {item.p_mastery:.0%} | "
-                f"{err} | {types} | {item.difficulty} | {item.recommended_count} |"
+                f"{err} | {types} | {item.difficulty} | {item.recommended_count} | "
+                f"{item.reason_text or '-'} |"
             )
         return "\n".join(rows)

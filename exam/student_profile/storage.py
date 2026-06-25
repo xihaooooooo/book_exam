@@ -200,3 +200,64 @@ def get_error_labels_for_attempt(db_path: str, attempt_id: int) -> list[dict]:
          "confidence": r[3], "source": r[4], "evidence": r[5], "suggestion": r[6]}
         for r in rows
     ]
+
+
+def apply_attempt_correction(
+    db_path: str,
+    attempt_id: int,
+    student_id: str,
+    is_correct: bool,
+    error_type: str = "",
+    reason: str = "用户手动修正",
+) -> bool:
+    """Manually correct one attempt and replace its error label."""
+    db = sqlite3.connect(db_path)
+    try:
+        with db:
+            row = db.execute(
+                "SELECT id, session_id FROM attempts WHERE id = ? AND student_id = ?",
+                (attempt_id, student_id),
+            ).fetchone()
+            if not row:
+                return False
+
+            db.execute(
+                """UPDATE attempts
+                   SET is_correct = ?, reason = ?, method = 'manual_override'
+                   WHERE id = ? AND student_id = ?""",
+                (1 if is_correct else 0, reason, attempt_id, student_id),
+            )
+            db.execute(
+                "DELETE FROM attempt_error_labels WHERE attempt_id = ?",
+                (attempt_id,),
+            )
+            if not is_correct and error_type:
+                db.execute(
+                    """INSERT INTO attempt_error_labels
+                       (attempt_id, error_type, confidence, source, evidence, suggestion)
+                       VALUES (?, ?, ?, 'manual', ?, '')""",
+                    (attempt_id, error_type, 1.0, reason),
+                )
+
+            session_id = row[1]
+            if session_id:
+                counts = db.execute(
+                    """SELECT COUNT(*) AS total,
+                              SUM(CASE WHEN is_correct THEN 1 ELSE 0 END) AS correct
+                       FROM attempts
+                       WHERE session_id = ?""",
+                    (session_id,),
+                ).fetchone()
+                total = counts[0] or 0
+                correct = counts[1] or 0
+                accuracy = (correct / total) if total else 0.0
+                db.execute(
+                    """UPDATE learning_sessions
+                       SET attempt_count = ?, correct_count = ?, accuracy = ?,
+                           updated_at = datetime('now')
+                       WHERE id = ?""",
+                    (total, correct, accuracy, session_id),
+                )
+        return True
+    finally:
+        db.close()

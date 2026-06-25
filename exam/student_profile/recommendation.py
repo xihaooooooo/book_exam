@@ -19,6 +19,13 @@ from exam.student_profile.schemas import (
 
 logger = logging.getLogger(__name__)
 
+
+def recommendation_key(section_id: str, topic: str = "") -> str:
+    """Stable arm key for section/topic level recommendation state."""
+    topic = (topic or "").strip()
+    return f"{section_id}::{topic}" if topic else section_id
+
+
 # ── 难度阶梯 ──
 
 
@@ -92,10 +99,11 @@ def init_bandit_states(
 
     for bkt in bkt_states:
         sid = bkt.section_id
+        key = recommendation_key(sid, bkt.topic)
 
         if bkt.total_attempts == 0:
-            bandit_states[sid] = BanditState(
-                section_id=sid, alpha=1.0, beta=1.0)
+            bandit_states[key] = BanditState(
+                section_id=key, alpha=1.0, beta=1.0)
             continue
 
         potential = max(0.01, 1.0 - bkt.p_mastery)
@@ -104,9 +112,9 @@ def init_bandit_states(
 
         # 叠加 session 奖励：正向 delta 只增强 alpha（推荐倾向），
         # 不增加 beta（不确定性），确保"练后提升"不会反向降权
-        reward = session_rewards.get(sid, 0.0)
+        reward = session_rewards.get(key, session_rewards.get(sid, 0.0))
         if reward > 0:
-            reward_boost = reward * potential * 2.0
+            reward_boost = min(reward, 1.0) * potential * 2.0
             alpha += reward_boost
             # beta 不变：delta 代表学习能力，不是不确定性
 
@@ -128,8 +136,8 @@ def init_bandit_states(
                 alpha += fact.get("confidence", 0.5) * 2.0
                 break
 
-        bandit_states[sid] = BanditState(
-            section_id=sid, alpha=alpha, beta=beta)
+        bandit_states[key] = BanditState(
+            section_id=key, alpha=alpha, beta=beta)
 
     return bandit_states
 
@@ -150,6 +158,19 @@ def _thompson_sample(
         samples.append((sid, theta))
     samples.sort(key=lambda x: -x[1])
     return samples
+
+
+def _rank_by_mean(
+    bandit_states: dict[str, BanditState],
+) -> list[tuple[str, float]]:
+    """Stable ranking by Beta mean for profile display."""
+    ranked = []
+    for key, bs in bandit_states.items():
+        denom = bs.alpha + bs.beta
+        score = bs.alpha / denom if denom > 0 else 0.0
+        ranked.append((key, score))
+    ranked.sort(key=lambda x: (-x[1], x[0]))
+    return ranked
 
 
 # ── 推荐计划构建 ──
@@ -193,6 +214,7 @@ def build_recommendation_plan(
     session_rewards: dict[str, float] = None,  # Phase 2: {section_id: cumulative ΔP(L)}
     trend_summary: dict = None,   # Phase 4: trend context
     memory_facts: list[dict] = None,  # Phase 4: long-term memory context
+    rank_strategy: str = "sample",  # sample for practice, mean for stable display
 ) -> RecommendationPlan:
     """从 BKT 状态构建推荐计划。
 
@@ -223,9 +245,12 @@ def build_recommendation_plan(
         memory_facts=memory_facts,
     )
 
-    # 2. Thompson Sampling 排序
-    ranked = _thompson_sample(bandit_states)
-    rank_map = {sid: i for i, (sid, _) in enumerate(ranked)}
+    # 2. 排序：practice 用 Thompson Sampling，画像展示用稳定均值
+    if rank_strategy == "mean":
+        ranked = _rank_by_mean(bandit_states)
+    else:
+        ranked = _thompson_sample(bandit_states)
+    rank_map = {key: i for i, (key, _) in enumerate(ranked)}
 
     # 3. 构建推荐条目
     items: list[RecommendationItem] = []
@@ -233,19 +258,27 @@ def build_recommendation_plan(
     running_count = 0
 
     # BKT state lookup
-    bkt_map = {b.section_id: b for b in bkt_states}
+    bkt_map = {recommendation_key(b.section_id, b.topic): b for b in bkt_states}
 
-    for sid, score in ranked:
-        bkt = bkt_map.get(sid)
+    for key, score in ranked:
+        bkt = bkt_map.get(key)
         if bkt is None:
             continue
 
-        rank = rank_map[sid]
-        error_type = error_map.get(sid, "")
+        sid = bkt.section_id
+        rank = rank_map[key]
+        error_type = error_map.get(key, error_map.get(sid, ""))
 
         difficulty = _recommend_difficulty(bkt.p_mastery, error_type)
         qtypes = _recommend_question_types(error_type)
         count = _suggest_count(rank, bkt.p_mastery, total_topics, target_count)
+        reason_tags, reason_text = _build_item_reason(
+            bkt=bkt,
+            error_type=error_type,
+            session_rewards=session_rewards or {},
+            trend_summary=trend_summary or {},
+            memory_facts=memory_facts or [],
+        )
 
         # 上限控制：达到目标总题数后停止分配
         if running_count >= target_count:
@@ -266,6 +299,8 @@ def build_recommendation_plan(
             question_types=qtypes,
             recommended_count=count,
             dominant_error_type=error_type,
+            reason_tags=reason_tags,
+            reason_text=reason_text,
         ))
 
     # 4. 构建 reason
@@ -282,6 +317,67 @@ def build_recommendation_plan(
         target_count=running_count,
         reason=reason,
     )
+
+
+def _build_item_reason(
+    bkt,
+    error_type: str,
+    session_rewards: dict[str, float],
+    trend_summary: dict,
+    memory_facts: list[dict],
+) -> tuple[list[str], str]:
+    """Build structured recommendation reasons for one topic."""
+    sid = bkt.section_id
+    key = recommendation_key(sid, bkt.topic)
+    tags: list[str] = []
+    parts: list[str] = []
+
+    if bkt.p_mastery < 0.5:
+        tags.append("low_mastery")
+        parts.append("掌握概率偏低")
+    elif bkt.p_mastery < 0.75:
+        tags.append("unstable_mastery")
+        parts.append("掌握还不稳定")
+
+    if bkt.total_attempts < 5:
+        tags.append("limited_evidence")
+        parts.append(f"样本仅 {bkt.total_attempts} 次")
+
+    if error_type:
+        tags.append("dominant_error")
+        try:
+            from exam.student_profile.schemas import ERROR_TYPE_LABELS
+            label = ERROR_TYPE_LABELS.get(error_type, error_type)
+        except Exception:
+            label = error_type
+        parts.append(f"主要错因：{label}")
+
+    reward = session_rewards.get(key, session_rewards.get(sid, 0.0))
+    if reward > 0:
+        tags.append("responds_to_practice")
+        parts.append("近期练习有提升")
+
+    for t in trend_summary.get("declining_topics", []):
+        if t.get("section_id") == sid:
+            tags.append("trend_declining")
+            parts.append("近期趋势下降")
+            break
+    for t in trend_summary.get("stalled_topics", []):
+        if t.get("section_id") == sid:
+            tags.append("trend_stalled")
+            parts.append("近期卡住")
+            break
+
+    for fact in memory_facts:
+        if fact.get("memory_type") == "weak_topic" and fact.get("memory_key") == sid:
+            tags.append("long_term_weak")
+            parts.append("长期薄弱记忆")
+            break
+
+    if not parts:
+        parts.append("用于保持覆盖")
+
+    return tags, "；".join(parts)
 
 
 def _build_reason(items: list[RecommendationItem],

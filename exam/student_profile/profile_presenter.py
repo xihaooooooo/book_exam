@@ -14,6 +14,7 @@ from exam.student_profile.profile_engine import (
 from exam.student_profile.recommendation import (
     build_recommendation_plan,
     init_bandit_states,
+    recommendation_key,
 )
 from exam.student_profile.schemas import ERROR_TYPE_LABELS
 from exam.student_profile.session_storage import get_recent_sessions
@@ -56,12 +57,35 @@ def _extract_bkt_and_errors(profile) -> tuple[list, dict[str, str]]:
         if topic.bkt_state is not None:
             bkt_states.append(topic.bkt_state)
         if topic.dominant_error_type:
-            error_map[topic.section_id] = topic.dominant_error_type
+            error_map[recommendation_key(topic.section_id, topic.topic)] = topic.dominant_error_type
     return bkt_states, error_map
 
 
+def _confidence_meta(total_attempts: int) -> dict[str, str | int]:
+    if total_attempts < 5:
+        return {
+            "evidence_count": total_attempts,
+            "confidence_level": "low",
+            "confidence_label": "数据不足",
+            "confidence_reason": f"仅 {total_attempts} 次作答，结论仅供参考",
+        }
+    if total_attempts < 10:
+        return {
+            "evidence_count": total_attempts,
+            "confidence_level": "medium",
+            "confidence_label": "初步判断",
+            "confidence_reason": f"{total_attempts} 次作答，已有初步依据",
+        }
+    return {
+        "evidence_count": total_attempts,
+        "confidence_level": "high",
+        "confidence_label": "较可信",
+        "confidence_reason": f"{total_attempts} 次作答，样本相对充分",
+    }
+
+
 def _build_topics_json(profile, bandit_states, section_titles: dict[str, str]) -> list[dict]:
-    bandit_map = {bs.section_id: bs for bs in bandit_states.values()}
+    bandit_map = {key: bs for key, bs in bandit_states.items()}
 
     def topic_sort_key(topic):
         bkt = topic.bkt_state
@@ -82,6 +106,7 @@ def _build_topics_json(profile, bandit_states, section_titles: dict[str, str]) -
                 topic.dominant_error_type,
             ),
             "streak_wrong": topic.streak_wrong,
+            **_confidence_meta(topic.total_attempts),
         }
         if topic.bkt_state is not None:
             entry["bkt"] = {
@@ -91,7 +116,10 @@ def _build_topics_json(profile, bandit_states, section_titles: dict[str, str]) -
                 "correct_count": topic.bkt_state.correct_count,
                 "params": asdict(topic.bkt_state.params),
             }
-        bs = bandit_map.get(topic.section_id)
+        bs = bandit_map.get(
+            recommendation_key(topic.section_id, topic.topic),
+            bandit_map.get(topic.section_id),
+        )
         if bs is not None:
             entry["bandit"] = {
                 "alpha": bs.alpha,
@@ -141,6 +169,7 @@ def build_profile_response(
         session_rewards=session_rewards,
         trend_summary=trend_summary,
         memory_facts=memory_facts,
+        rank_strategy="mean",
     )
 
     error_dist = {

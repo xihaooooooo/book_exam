@@ -50,7 +50,7 @@ def strategy_router(state: AgentState) -> dict:
             if data_ok:
                 # 提取 BKT 状态和错因映射
                 from exam.student_profile.schemas import BKTState, BKTParams
-                from exam.student_profile.recommendation import build_recommendation_plan
+                from exam.student_profile.recommendation import build_recommendation_plan, recommendation_key
 
                 bkt_states: list[BKTState] = []
                 error_map: dict[str, str] = {}
@@ -74,7 +74,10 @@ def strategy_router(state: AgentState) -> dict:
                                 p_S=params_dict.get("p_S", 0.1),
                             ),
                         ))
-                    error_map[t["section_id"]] = t.get("dominant_error_type", "")
+                    error_map[recommendation_key(
+                        t["section_id"],
+                        t.get("topic", ""),
+                    )] = t.get("dominant_error_type", "")
 
                 # Phase 2：计算 session 奖励（优先显式 session，回退时间窗口）
                 from exam.student_profile.profile_engine import compute_session_rewards as _old_rewards
