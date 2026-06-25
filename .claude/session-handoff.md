@@ -1,3 +1,70 @@
+# 会话交接 — 2026-06-25 (会话 4)
+
+## 做了什么
+
+### CLI 删除收口
+- **删除 `generate.py` / `show_profile.py` / `record_attempt.py` / `show_db.py` / `main.py` / `analyze_exam.py` / `record_mistake.py`**：产品入口统一为 Web/API（`web/index.html` → `web/server.py`），不再保留 CLI 学习闭环入口。
+- **保留 `parse.py`**：教材入库/数据准备工具，不属于学生学习闭环。
+- `backfill_sessions.py`：标注为内部维护工具，不参与学习闭环。
+
+### 网页三合一 + 出题/答题/画像/试卷分析一键化
+- **新建 `web/index.html`**：Tab 式统一入口，三个 Tab（出题/答题/画像）无缝切换
+- 出题 Tab：三种模式 exam/diagnostic/practice + focus 定向考点 + 往年试卷分析参照（上传 DOCX → LLM 自动解析）
+- 交卷后自动切到画像 Tab，出题生成完自动切到答题 Tab——完整闭环
+- **`POST /api/generate`**：网页端触发 ExamGraph 出题，出完自动重载 QUESTIONS
+- **`POST /api/analyze-exam`**：上传 DOCX → base64 解码 → parse_docx → analyze_exam → generate_report → 自动入选下拉框
+- **`GET /api/analysis-reports`**：列出 analysis/ 目录下可用报告
+
+### 画像展示优化
+- **章节标题补全**：`/api/profile` 自动从 `sections.db` 查标题，topic 为空时用教材章节名填充
+- **LaTeX 清洗**：`$\mu \mathrm{C} / \mathrm{OS}-\mathrm{II}$` → 自动去标记，合并多余空格
+- **错因中文映射**：`concept_confusion` → "概念混淆"，在 API 层做映射而非前端
+- `build_toc_from_db` 从 `generate.py` 搬到 `agent_utils.py`，`generate.py` 和 `server.py` 共用
+
+### 判题性能修复
+- `DIAGNOSIS_CONCURRENCY` 从 2 → 5，选择题错因诊断速度翻倍
+
+### 面试调研（四轮深度搜索）
+- 搜了 AI Agent 八大核心能力：认知架构、记忆系统（Mem0/Zep/Letta 对比）、工具使用（MCP/A2A）、反思、护栏安全、Eval/可观测、多 Agent 编排、Harness 工程
+- 搜了 2026 年市场：Agent 岗位同比 +455%、平均月薪 ¥60,738、技能红利窗口还剩 12-18 个月
+- 搜了大厂招聘风向：阿里/字节/腾讯/京东的 Agent 人才需求、复合能力要求
+- 评估了项目竞争力：多 Agent 编排+BKT 算法+Harness 工程是核心卖点；Eval/测试是最大硬伤
+- 结论：项目有研究级技术深度（BKT+Thompson Sampling 和斯坦福 BEAGLE 框架一致），但缺 README+架构图+测试
+
+### Git 提交
+- `c522b4b`：BKT+Bandit 推荐引擎 + JudgeGraph LLM 判题 + 网页画像（19 files, +2653/-249）
+- `539d759`：网页三合一 + 试卷分析上传 + 章节标题清洗（8 files, +1173/-34）
+
+## 还没做
+
+- **README + 架构图**：面试官 30 秒决定看不看，这个投入产出比最高
+- **BKT 单元测试**：`test_bkt.py`，5 个测试场景（全对→0.999、全错→0.025、空序列→P(L₀)、交替→收敛、session 奖励）
+- **出题质量评估**：pass rate / retry 率 / 难度偏差统计，加一个 `GET /api/stats` 端点
+- **摸底→练习自动衔接**：diagnostic 交卷后自动提示"你的薄弱点在 X，要针对性练习吗？"
+- **LangGraph 节点拆分**：strategy_router 太胖（180 行），拆成 profile_router → recommendation_planner
+- **MCP 协议包装**：把 `search_keyword`、`get_section_text` 等 tool 包装成 MCP Server
+- **记忆系统**：ProfileGraph 目前是实时聚合，没有跨会话记忆管理和遗忘曲线
+- **护栏安全层**：预执行行为护栏（白名单/去重）+ 外部看门狗 + 审计日志
+
+## 待决定
+
+- 下一个优先级：README+架构图（面试准备） vs 摸底→练习自动衔接（产品体验） vs BKT 测试（代码质量）
+- 项目面试定位：强调"多 Agent 架构 + 算法深度（BKT+Bandit） + Harness 工程"三张牌
+- 是否需要录 demo 视频？
+
+## 当前阻塞
+
+- 无硬阻塞。代码跑通、闭环验证通过。
+
+## 下一步建议
+
+1. **README + 架构图**（最高投入产出比）：写出系统架构、BKT 公式、Agent 协作图，面试直接发
+2. **`test_bkt.py`**（200 行）：补上最大的硬伤，面试官问到测试不会翻白眼
+3. **出题质量统计**：`GET /api/stats` 返回 pass rate / retry 率 / 难度偏差，刷 Eval 这层
+4. 以上三个做完，项目从"能跑"变成"能面"——可以开始投简历了
+
+---
+
 # 会话交接 — 2026-06-24 (会话 3)
 
 ## 做了什么
@@ -30,12 +97,12 @@
 - ✅ Thompson Sampling 分布：Beta(10,1) mean=0.91, Beta(1,10) mean=0.09
 - ✅ 推荐排序：弱 topic P(L)=4% 排第 1，easy 3 题
 - ✅ Phase 2 闭环：mastered topic 不被假奖励干扰，弱 topic 排前
-- ✅ 完整端到端：`generate.py --mode practice --student e2e_test_001` → 15 道题一次通过质检
+- ✅ 完整端到端：~~`generate.py --mode practice --student e2e_test_001`~~（CLI 已删除，历史记录）→ 15 道题一次通过质检
 - ✅ 出题→答题→判题→再推荐的闭环全部走通
 
 ## 还没做
 
-- **`show_profile.py --bkt`**：加参数显示 BKT P(L) 概率和 Beta 分布，现在 BKT 只在 practice 内部跑
+- ~~**`show_profile.py --bkt`**~~（CLI 已删除）：BKT P(L) 概率和 Beta 分布改为通过 Web `/api/profile` 查看
 - **章节粒度归一化**：`1.1` vs `1.1.2` 分裂——chief_editor 出题用细粒度节编号，demo 题手写粗粒度，导致同一知识点分成两个 topic
 - **对接真实教材跑完整场景**：用 `25年春嵌入式操作系统` docx 出题，验证"速通"核心假设
 - **网页端画像展示**：画像还在 CLI 看
@@ -53,7 +120,7 @@
 
 ## 下一步建议
 
-1. **`show_profile.py --bkt`**（小改动，马上能用）：加参数显示 P(L) 和 Beta 分布，让 BKT 对人类可见
+1. ~~**`show_profile.py --bkt`**~~（CLI 已删除）：BKT P(L) 和 Beta 分布改为通过 Web `/api/profile` 查看
 2. **章节粒度归一化**（中等，解决数据分裂实际问题）：不改的话每次出题越多 topic 越多，BKT 效果打折扣
 3. **对接真实教材**（核心价值验证）：用嵌入式操作系统教材跑完整场景
 
@@ -88,7 +155,7 @@
 ## 还没做
 
 - **端到端验证**：启动 `python web/server.py`，用 demo 题目答题交卷，确认 `attempt_error_labels` 表有 llm 标签
-- **practice 模式端到端**（上次交接遗留）：`python generate.py --mode practice --student <id>`
+- ~~**practice 模式端到端**~~（CLI 已删除）：practice 端到端改为通过 Web `/api/generate` mode=practice 验证
 - **错因诊断 Agent 阶段 5**：本次 JudgeGraph 改造实质上就是阶段 5。设计已定、代码已写，缺端到端验证
 - **推荐引擎（阶段 3）**：未动
 - **摸底→练习自动衔接**：未动
@@ -130,7 +197,7 @@
 - **推荐引擎**（阶段 3）：画像告诉你弱在哪，但不会说"练什么提分最快"
 - **摸底→练习自动衔接**：diagnostic 跑完需要手动跑 practice
 - **网页端画像展示**：画像只在 CLI 看，web 没有
-- **practice 端到端没测过**：只单元测了 strategy_router，没真正跑 generate.py --mode practice
+- **practice 端到端没测过**：只单元测了 strategy_router，~~没真正跑 generate.py --mode practice~~（CLI 已删除，改为 Web 验证）
 - **四种出题方式的 tool loop 风险**：chief_editor 靠 LLM 自觉调工具，prompt 可能抑制工具调用
 
 ## 待决定
@@ -144,5 +211,5 @@
 
 ## 下一步建议
 
-- 先跑一遍 `python generate.py --mode practice --student test_cli` 确认端到端通
+- ~~先跑一遍 `python generate.py --mode practice --student test_cli`~~（CLI 已删除）：改为 Web `/api/generate` mode=practice 验证
 - 然后补阶段 3（推荐引擎）或阶段 5（错因诊断）

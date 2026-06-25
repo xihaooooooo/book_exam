@@ -61,6 +61,8 @@ def _recommend_question_types(error_type: str) -> list[str]:
 def init_bandit_states(
     bkt_states: list,  # list of BKTState
     session_rewards: dict[str, float] = None,  # {section_id: cumulative ΔP(L)}
+    trend_summary: dict = None,   # Phase 4: trend signals
+    memory_facts: list[dict] = None,  # Phase 4: long-term memory facts
 ) -> dict[str, BanditState]:
     """初始化 Thompson Sampling Beta 分布。
 
@@ -72,10 +74,18 @@ def init_bandit_states(
       α = α_base + Σ ΔP(L)_session      — 累计提升越多，越倾向继续练
       β = β_base + Σ (1 - ΔP(L)_session) — 练了没提升，自然降权
 
+    Phase 4 长期记忆增强：
+      declining/stalled topics → α 额外加成
+      long-term weak topics → 根据置信度加成
+
     k 控制先验强度，默认 3。
     """
     if session_rewards is None:
         session_rewards = {}
+    if trend_summary is None:
+        trend_summary = {}
+    if memory_facts is None:
+        memory_facts = []
 
     k = 3.0
     bandit_states: dict[str, BanditState] = {}
@@ -99,6 +109,24 @@ def init_bandit_states(
             effective = reward * potential  # reward × (1-P(L))
             alpha += effective
             beta += (1.0 - effective)
+
+        # Phase 4: trend/memory bonuses
+        # declining topics → boost α to bring them up
+        for t in trend_summary.get("declining_topics", []):
+            if t.get("section_id") == sid:
+                alpha += 0.5
+                break
+        # stalled topics → slight boost
+        for t in trend_summary.get("stalled_topics", []):
+            if t.get("section_id") == sid:
+                alpha += 0.3
+                break
+
+        # long-term weak topic → persistent boost by confidence
+        for fact in memory_facts:
+            if fact.get("memory_type") == "weak_topic" and fact.get("memory_key") == sid:
+                alpha += fact.get("confidence", 0.5) * 2.0
+                break
 
         bandit_states[sid] = BanditState(
             section_id=sid, alpha=alpha, beta=beta)
@@ -163,6 +191,8 @@ def build_recommendation_plan(
     student_id: str,
     target_count: int = 20,
     session_rewards: dict[str, float] = None,  # Phase 2: {section_id: cumulative ΔP(L)}
+    trend_summary: dict = None,   # Phase 4: trend context
+    memory_facts: list[dict] = None,  # Phase 4: long-term memory context
 ) -> RecommendationPlan:
     """从 BKT 状态构建推荐计划。
 
@@ -172,6 +202,8 @@ def build_recommendation_plan(
         student_id: 学生标识
         target_count: 目标总题数
         session_rewards: Phase 2 闭环奖励，叠加到 Bandit Beta 上
+        trend_summary: Phase 4 趋势上下文，影响 Bandit 先验
+        memory_facts: Phase 4 长期记忆，影响 Bandit 先验
 
     Returns:
         RecommendationPlan，items 按 bandit_score 降序
@@ -184,8 +216,12 @@ def build_recommendation_plan(
             reason="无作答数据，无法生成推荐",
         )
 
-    # 1. 初始化 Bandit 状态（先验 + session 奖励）
-    bandit_states = init_bandit_states(bkt_states, session_rewards)
+    # 1. 初始化 Bandit 状态（先验 + session 奖励 + trend/memory 加成）
+    bandit_states = init_bandit_states(
+        bkt_states, session_rewards,
+        trend_summary=trend_summary,
+        memory_facts=memory_facts,
+    )
 
     # 2. Thompson Sampling 排序
     ranked = _thompson_sample(bandit_states)

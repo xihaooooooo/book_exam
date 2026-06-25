@@ -1,11 +1,14 @@
-"""答题前端桥梁：提供题目 + 批量判题。
+"""Web/API 入口：提供出题、答题、画像和往年试卷分析。
 
 用法：
     python web/server.py
     python web/server.py --port 8080
 
-题目来源：优先读 output/questions_*.json（generate.py 产物），没有则用内置 demo。
-判题：POST /api/submit-exam → JudgeGraph 批量判定 → attempts.db。
+产品入口统一为 web/index.html：
+    POST /api/generate      → ExamGraph 出题
+    POST /api/submit-exam   → JudgeGraph 批量判题并写入 attempts.db
+    GET  /api/profile       → ProfileGraph/BKT/Bandit 画像与推荐
+    POST /api/analyze-exam  → 上传 DOCX 并生成往年试卷分析
 """
 
 import argparse
@@ -25,16 +28,27 @@ if _project_root not in sys.path:
 from exam.graph.judge_graph import JudgeGraph
 from exam.graph.exam_graph import ExamGraph
 from exam.student_profile.storage import init_attempts_db, init_error_labels_db, record_attempts_batch
-from exam.student_profile.profile_engine import build_profile, compute_session_rewards, normalize_section_id
-from exam.student_profile.recommendation import init_bandit_states, build_recommendation_plan
-from exam.student_profile.schemas import ERROR_TYPE_LABELS
+from exam.student_profile.profile_engine import normalize_section_id
+from exam.student_profile.profile_presenter import build_profile_response
+from exam.student_profile.session_service import (
+    abort_session,
+    complete_learning_session_after_submit,
+    start_learning_session,
+    update_generated_session_plan,
+)
+from exam.student_profile.session_storage import (
+    get_session,
+    init_long_memory_db,
+)
 from exam.agents.utils.agent_utils import create_llm_client, build_toc_from_db
 from exam.config import DEFAULT_CONFIG
 
 logging.basicConfig(level=logging.INFO, format="[server] %(message)s")
 logger = logging.getLogger(__name__)
 
+
 PORT = 8765
+DEFAULT_STUDENT_ID = "default"  # 单用户学习 Agent，内部归属键，非产品功能
 
 # ── 模块级状态（启动时初始化）──
 QUESTIONS = []
@@ -209,7 +223,27 @@ class QuizHandler(SimpleHTTPRequestHandler):
             return
 
         try:
-            student_id = data.get("student_id", "")
+            student_id = DEFAULT_STUDENT_ID
+            session_id = data.get("session_id")
+
+            # 校验 session_id：存在 + 归属 + 状态为 active
+            if session_id is not None:
+                session_row = get_session(ATTEMPTS_DB, session_id)
+                if not session_row:
+                    logger.warning("submit-exam: session_id=%s 不存在，降级为 null", session_id)
+                    session_id = None
+                elif session_row.get("student_id") != student_id:
+                    logger.warning(
+                        "submit-exam: session_id=%s 归属 %s，不匹配 %s，降级为 null",
+                        session_id, session_row.get("student_id"), student_id,
+                    )
+                    session_id = None
+                elif session_row.get("status") != "active":
+                    logger.warning(
+                        "submit-exam: session_id=%s 状态=%s 非 active，降级为 null",
+                        session_id, session_row.get("status"),
+                    )
+                    session_id = None
 
             # ① 修复字段映射 + 下沉 student_id + 归一化章节编号
             for ans in data.get("answers", []):
@@ -221,10 +255,21 @@ class QuizHandler(SimpleHTTPRequestHandler):
             state = {"student_id": student_id, "answers": data["answers"]}
             result = JUDGE_GRAPH.invoke(state)
 
-            # ③ 批量写入 attempts（事务保护）
-            record_attempts_batch(ATTEMPTS_DB, result["answers"])
+            # ③ 批量写入 attempts（事务保护），带 session_id
+            attempt_ids = record_attempts_batch(
+                ATTEMPTS_DB, result["answers"],
+                session_id=session_id,
+            )
 
-            # ④ 返回结果
+            # ④ 长期记忆闭环：post-session 处理
+            session_effect = complete_learning_session_after_submit(
+                ATTEMPTS_DB,
+                student_id,
+                session_id,
+                result["answers"],
+            )
+
+            # ⑤ 返回结果
             results = [{
                 "is_correct": a["is_correct"],
                 "reason": a["reason"],
@@ -233,136 +278,24 @@ class QuizHandler(SimpleHTTPRequestHandler):
                 "explanation": a.get("explanation", ""),
             } for a in result["answers"]]
 
+            response = {"ok": True, "results": results}
+            if session_effect:
+                response["session"] = session_effect
+
             logger.info("submit-exam: student=%s, %d 题", student_id, len(results))
-            self._serve_json({"ok": True, "results": results})
+            self._serve_json(response)
 
         except Exception as e:
             logger.exception("submit-exam 失败")
             self._serve_json({"ok": False, "error": str(e)}, status=400)
 
     def _handle_profile(self):
-        from urllib.parse import parse_qs
-        from dataclasses import asdict
-
-        parsed = urlparse(self.path)
-        params = parse_qs(parsed.query)
-        student_id = params.get("student_id", [""])[0].strip()
-
-        if not student_id:
-            self._serve_json({"ok": False, "error": "缺少 student_id 参数"}, status=400)
-            return
-
         try:
-            # 1. 构建 BKT 画像
-            profile = build_profile(student_id, ATTEMPTS_DB, mastery_backend="bkt")
-
-            # 2. 提取 BKT states + error_map
-            bkt_states = []
-            error_map: dict[str, str] = {}
-            for t in profile.topics:
-                if t.bkt_state is not None:
-                    bkt_states.append(t.bkt_state)
-                if t.dominant_error_type:
-                    error_map[t.section_id] = t.dominant_error_type
-
-            # 3. Session 奖励（Phase 2）
-            session_rewards = compute_session_rewards(ATTEMPTS_DB, student_id)
-
-            # 4. Bandit 状态
-            bandit_states = init_bandit_states(bkt_states, session_rewards)
-
-            # 5. 推荐计划
-            plan = build_recommendation_plan(
-                bkt_states, error_map, student_id, target_count=20,
-                session_rewards=session_rewards,
-            )
-
-            # 6. 从 sections.db 查章节标题，丰富 topic 展示
-            section_titles: dict[str, str] = {}
+            student_id = DEFAULT_STUDENT_ID
             sections_db = os.path.join(os.path.dirname(__file__), "..", "cache", "sections.db")
-            if os.path.exists(sections_db):
-                try:
-                    import sqlite3 as _sql
-                    import re as _re
-                    _conn = _sql.connect(sections_db)
-                    _rows = _conn.execute("SELECT id, title FROM sections").fetchall()
-                    _conn.close()
-                    # 去 LaTeX 标记（$...$ 和 \mathrm{...} 等），合并多余空格
-                    _latex_re = _re.compile(r"\$.*?\$|\\mathrm|\\mathbf|\\mathit|\\text|\\[a-z]+\{|\}|\\")
-                    _space_re = _re.compile(r"\s{2,}")
-                    for r in _rows:
-                        if r[0] and r[1]:
-                            clean = _latex_re.sub("", r[1])
-                            clean = _space_re.sub(" ", clean).strip()
-                            section_titles[r[0]] = clean or r[1]
-                except Exception:
-                    pass
-
-            # 7. 组装 topics（BKT + Bandit 合并，按 P(L) 升序）
-            bandit_map = {bs.section_id: bs for bs in bandit_states.values()}
-
-            def _topic_sort_key(t):
-                bkt = t.bkt_state
-                return bkt.p_mastery if bkt else 1.0
-
-            sorted_topics = sorted(profile.topics, key=_topic_sort_key)
-
-            topics_json = []
-            for t in sorted_topics:
-                # 优先用 attempt 里的 topic，其次用 sections.db 的标题
-                display_title = t.topic or section_titles.get(t.section_id, "")
-                entry = {
-                    "section_id": t.section_id,
-                    "topic": display_title,
-                    "total_attempts": t.total_attempts,
-                    "accuracy": t.accuracy,
-                    "recent_accuracy": t.recent_accuracy,
-                    "mastery_level": t.mastery_level,
-                    "dominant_error_type": ERROR_TYPE_LABELS.get(t.dominant_error_type, t.dominant_error_type),
-                    "streak_wrong": t.streak_wrong,
-                }
-                if t.bkt_state is not None:
-                    entry["bkt"] = {
-                        "p_mastery": t.bkt_state.p_mastery,
-                        "p_initial": t.bkt_state.p_initial,
-                        "total_attempts": t.bkt_state.total_attempts,
-                        "correct_count": t.bkt_state.correct_count,
-                        "params": asdict(t.bkt_state.params),
-                    }
-                bs = bandit_map.get(t.section_id)
-                if bs is not None:
-                    entry["bandit"] = {
-                        "alpha": bs.alpha,
-                        "beta": bs.beta,
-                    }
-                topics_json.append(entry)
-
-            # 7. 错因分布（中文 key）
-            error_dist = {}
-            for etype, cnt in profile.error_distribution.items():
-                label = ERROR_TYPE_LABELS.get(etype, etype)
-                error_dist[label] = cnt
-
-            # 8. 推荐计划
-            rec_json = {
-                "items": [asdict(item) for item in plan.items],
-                "target_count": plan.target_count,
-                "reason": plan.reason,
-            }
-
-            result = {
-                "ok": True,
-                "student_id": profile.student_id,
-                "overall_accuracy": profile.overall_accuracy,
-                "total_attempts": profile.total_attempts,
-                "mastery_summary": profile.mastery_summary,
-                "topics": topics_json,
-                "recommendation": rec_json,
-                "error_distribution": error_dist,
-                "risk_signals": profile.risk_signals,
-            }
+            result = build_profile_response(student_id, ATTEMPTS_DB, sections_db)
             logger.info("profile: student=%s, topics=%d, accuracy=%.0f%%",
-                        student_id, len(topics_json), profile.overall_accuracy * 100)
+                        student_id, len(result.get("topics", [])), result.get("overall_accuracy", 0) * 100)
             self._serve_json(result)
 
         except Exception:
@@ -381,15 +314,11 @@ class QuizHandler(SimpleHTTPRequestHandler):
             return
 
         mode = data.get("mode", "exam")
-        student_id = data.get("student_id", "default").strip()
+        student_id = DEFAULT_STUDENT_ID
         focus = data.get("focus", "").strip()
         target_count = data.get("count", 0)
         allowed_types = data.get("types", "").strip()
         analysis_report = data.get("analysis_report", "").strip()
-
-        if mode == "practice" and not student_id:
-            self._serve_json({"ok": False, "error": "practice 模式需要 student_id"}, status=400)
-            return
 
         config = DEFAULT_CONFIG.copy()
         db_path = config.get("db_path", "cache/sections.db")
@@ -398,26 +327,50 @@ class QuizHandler(SimpleHTTPRequestHandler):
             self._serve_json({"ok": False, "error": f"数据库 {db_path} 不存在"}, status=500)
             return
 
+        # ── 长期记忆闭环：创建 session ──
+        session = start_learning_session(
+            ATTEMPTS_DB,
+            student_id=student_id,
+            mode=mode,
+            target_count=target_count,
+        )
+        session_id = session.get("session_id")
+
         try:
             toc = build_toc_from_db(db_path)
             exam = ExamGraph(config=config, debug=False)
-            _, questions = exam.propagate(
+            final_state, questions = exam.propagate(
                 db_path=db_path, toc=toc,
                 focus=focus, target_count=target_count,
                 allowed_types=allowed_types,
                 analysis_report_path=analysis_report,
                 mode=mode, student_id=student_id,
             )
-            QUESTIONS = get_questions()
-            logger.info("generate: mode=%s, student=%s, count=%d, reloaded=%d",
-                        mode, student_id, len(questions), len(QUESTIONS))
+            QUESTIONS = questions
+            logger.info("generate: mode=%s, student=%s, generated=%d",
+                        mode, student_id, len(QUESTIONS))
+
+            # ③ 提取 practice_plan 回写 session
+            if session_id and mode == "practice":
+                update_generated_session_plan(
+                    ATTEMPTS_DB,
+                    session_id,
+                    final_state.get("practice_plan") or {},
+                )
+
             self._serve_json({
                 "ok": True,
                 "count": len(questions),
                 "mode": mode,
+                "session_id": session_id,
             })
         except Exception:
             logger.exception("generate API 失败")
+            # 出题失败 → 将 session 标记为 aborted，避免残留 active 记录
+            try:
+                abort_session(ATTEMPTS_DB, session_id, "generate failed")
+            except Exception:
+                logger.exception("标记 session=%s 为 aborted 失败", session_id)
             self._serve_json({"ok": False, "error": "出题失败，查看服务器日志"}, status=500)
 
     def _handle_analyze_exam(self):
@@ -518,12 +471,13 @@ def main():
     QUESTIONS = get_questions()
     init_attempts_db(ATTEMPTS_DB)
     init_error_labels_db(ATTEMPTS_DB)
+    init_long_memory_db(ATTEMPTS_DB)
     llm_client = create_llm_client()
     JUDGE_GRAPH = JudgeGraph(llm_client)
     logger.info("已加载 %d 道题目，判题图已编译", len(QUESTIONS))
 
     server = HTTPServer(("0.0.0.0", args.port), QuizHandler)
-    logger.info("启动: http://localhost:%s/quiz.html", args.port)
+    logger.info("启动: http://localhost:%s/index.html", args.port)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

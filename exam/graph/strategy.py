@@ -76,10 +76,22 @@ def strategy_router(state: AgentState) -> dict:
                         ))
                     error_map[t["section_id"]] = t.get("dominant_error_type", "")
 
-                # Phase 2：计算 session 奖励（基于时间窗口，无需 practice_sessions 表）
-                from exam.student_profile.profile_engine import compute_session_rewards, BKTParams
-                session_rewards = compute_session_rewards(
-                    attempts_db, student_id, BKTParams())
+                # Phase 2：计算 session 奖励（优先显式 session，回退时间窗口）
+                from exam.student_profile.profile_engine import compute_session_rewards as _old_rewards
+                from exam.student_profile.trend_engine import compute_explicit_session_rewards, build_trend_summary
+                from exam.student_profile.memory_engine import get_active_memory_facts
+                session_rewards = compute_explicit_session_rewards(
+                    attempts_db, student_id)
+                if session_rewards is None:
+                    # 尚无显式 session 数据，回退时间窗口算法
+                    from exam.student_profile.profile_engine import BKTParams as _BKTParams
+                    session_rewards = _old_rewards(
+                        attempts_db, student_id, _BKTParams())
+                    logger.info("strategy: 回退到时间窗口 session reward")
+
+                # Phase 4：加载趋势和长期记忆上下文
+                trend_summary = build_trend_summary(attempts_db, student_id, window=5)
+                memory_facts = get_active_memory_facts(attempts_db, student_id)
 
                 # 调推荐引擎：BKT P(L) → Bandit 排序 → RecommendationPlan
                 if not target_count or target_count <= 0:
@@ -91,6 +103,8 @@ def strategy_router(state: AgentState) -> dict:
                     student_id=student_id,
                     target_count=target_count,
                     session_rewards=session_rewards,
+                    trend_summary=trend_summary,
+                    memory_facts=memory_facts,
                 )
 
                 if plan.items:

@@ -96,7 +96,7 @@
   .gen-result { text-align: center; padding: 20px; animation: cardIn 0.4s ease; }
   .gen-result .big { font-size: 36px; font-weight: 300; color: #2E2C29; }
 
-  /* ── Quiz tab (from quiz.html) ── */
+  /* ── Quiz tab ── */
   .quiz-card { width: 100%; max-width: 560px; margin: 0 auto; }
   .qinfo { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; }
   .qinfo .qtopic { font-size: 16px; font-weight: 300; color: #2E2C29; letter-spacing: 0.03em; }
@@ -302,11 +302,6 @@
         <span id="uploadStatus" style="font-size:11px;color:#8B8680;"></span>
       </div>
 
-      <!-- practice 专属：学生 ID -->
-      <div class="form-row" id="studentRow" style="display:none;">
-        <label>学生 ID</label>
-        <input type="text" id="genStudent" value="default" style="width:140px;flex:none;">
-      </div>
 
       <button class="btn-gen" id="genBtn" onclick="doGenerate()">生成试卷</button>
       <div id="genStatus"></div>
@@ -328,7 +323,10 @@
 // ═══════════════════════════════════
 // Shared state
 // ═══════════════════════════════════
-const STUDENT_ID = new URLSearchParams(location.search).get('student') || 'default';
+const STUDENT_ID = "default";
+let CURRENT_SESSION_ID = (() => {
+  try { const v = sessionStorage.getItem('current_session_id'); return v ? parseInt(v) : null; } catch(e) { return null; }
+})();
 const TYPE_LABELS = { choice:'选择题', fill_blank:'填空题', short_answer:'简答题', comprehensive:'综合题' };
 const DIFF_LABELS = { easy:'简单', medium:'中等', hard:'困难', easy_to_medium:'简单→中等', medium_to_hard:'中等→困难' };
 const ML_LABELS = { mastered:'已掌握', familiar:'熟悉', unstable:'不稳定', weak:'薄弱', unknown:'未知' };
@@ -336,9 +334,13 @@ const ML_LABELS = { mastered:'已掌握', familiar:'熟悉', unstable:'不稳定
 // ═══════════════════════════════════
 // Tab switching
 // ═══════════════════════════════════
-function switchTab(name) {
+function switchTab(name, updateHash = true) {
+  if (!['generate', 'quiz', 'profile'].includes(name)) name = 'generate';
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
   document.querySelectorAll('.tab-content').forEach(c => c.classList.toggle('active', c.id === 'tab-' + name));
+  if (updateHash && location.hash !== '#' + name) {
+    history.replaceState(null, '', '#' + name);
+  }
   if (name === 'quiz') initQuiz();
   if (name === 'profile') loadProfile();
 }
@@ -360,7 +362,6 @@ function selectMode(mode) {
   // exam: show focus + analysis; diagnostic: hide both; practice: hide both
   document.getElementById('focusRow').style.display = examOnly ? '' : 'none';
   document.getElementById('analysisRow').style.display = examOnly ? '' : 'none';
-  document.getElementById('studentRow').style.display = prac ? '' : 'none';
 
   // diagnostic: force choice only
   if (diag) {
@@ -451,7 +452,6 @@ function doGenerate() {
 
   const selTypes = [];
   document.querySelectorAll('#typeTags .type-tag.sel').forEach(t => selTypes.push(typeMap[t.dataset.type]));
-  const student = genMode === 'practice' ? (document.getElementById('genStudent').value.trim() || 'default') : STUDENT_ID;
   const analysisReport = document.getElementById('genAnalysis').value;
 
   fetch('/api/generate', {
@@ -462,12 +462,14 @@ function doGenerate() {
       count: parseInt(document.getElementById('genCount').value) || 0,
       types: selTypes.join(','),
       focus: document.getElementById('genFocus').value.trim(),
-      student_id: student,
+      student_id: STUDENT_ID,
       analysis_report: analysisReport,
     }),
   }).then(r => r.json()).then(data => {
     btn.disabled = false;
     if (data.ok) {
+      CURRENT_SESSION_ID = data.session_id || null;
+      if (CURRENT_SESSION_ID) { try { sessionStorage.setItem('current_session_id', CURRENT_SESSION_ID); } catch(e) {} }
       status.innerHTML = `<div class="gen-result">
         <div class="big">✅ ${data.count} 题</div>
         <div style="color:#8B8680;margin:8px 0;">模式：${data.mode} · 已加载到答题区</div>
@@ -497,8 +499,16 @@ async function fetchQuestions() {
 
 function initQuiz() {
   if (questions.length === 0) {
-    document.getElementById('quizRoot').innerHTML = '<div class="card loading-state">📭 暂无题目，请先去"出题"Tab 生成试卷</div>';
-    fetchQuestions().then(() => { if (questions.length > 0) renderQuiz(); });
+    document.getElementById('quizRoot').innerHTML = '<div class="card loading-state">⏳ 加载题目中...</div>';
+    fetchQuestions().then(() => {
+      if (questions.length > 0) {
+        answers = new Array(questions.length);
+        qIdx = 0; qStartTs = Date.now(); confidence = 3;
+        renderQuiz();
+      } else {
+        document.getElementById('quizRoot').innerHTML = '<div class="card loading-state">📭 暂无题目，请先去"出题"Tab 生成试卷</div>';
+      }
+    });
     return;
   }
   if (document.getElementById('quizRoot').children.length === 0 ||
@@ -635,6 +645,7 @@ async function confirmSubmit() {
 async function submitExam() {
   const payload = {
     student_id: STUDENT_ID,
+    session_id: CURRENT_SESSION_ID,
     answers: questions.map((q, i) => ({
       question_type: q.question_type, student_answer: (answers[i] && answers[i].student_answer) || '',
       correct_answer: q.correct_answer, stem: q.stem, explanation: q.explanation || '',
@@ -651,7 +662,11 @@ async function submitExam() {
     });
     if (res.ok) {
       const data = await res.json();
-      if (data.ok) return data.results;
+      if (data.ok) {
+        CURRENT_SESSION_ID = null;
+        try { sessionStorage.removeItem('current_session_id'); } catch(e) {}
+        return data.results;
+      }
     }
   } catch(e) {}
   return questions.map((q, i) => {
@@ -711,7 +726,7 @@ async function loadProfile() {
   const root = document.getElementById('profileRoot');
   root.innerHTML = '<div class="loading-state">加载中...</div>';
   try {
-    const res = await fetch('/api/profile?student_id=' + encodeURIComponent(STUDENT_ID));
+    const res = await fetch('/api/profile');
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const d = await res.json();
     if (!d.ok) throw new Error(d.error || '未知错误');
@@ -816,6 +831,78 @@ function renderProfile(d) {
   } else { html += '<div class="empty-state" style="padding:24px;">✅ 无异常信号</div>'; }
   html += '</div></div>';
 
+  // ── Recent Sessions ──
+  const sessions = d.recent_sessions || [];
+  if (sessions.length > 0) {
+    html += `<div class="card" style="margin-top:16px;"><div class="sec-title">最近练习记录</div>`;
+    html += `<table class="rec-table" style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="color:#8B8680;text-align:left;border-bottom:1px solid rgba(0,0,0,0.06);">
+      <th style="padding:8px 6px;">#</th><th>模式</th><th>时间</th><th>题数</th><th>正确率</th><th>效果</th></tr></thead><tbody>`;
+    sessions.forEach((s, i) => {
+      const acc = s.accuracy != null ? Math.round(s.accuracy * 100) + '%' : '-';
+      const effect = s.effect_summary || '-';
+      const modeLabel = {practice:'训练',diagnostic:'摸底',exam:'考试',historical:'历史'}[s.mode] || s.mode;
+      html += `<tr style="border-bottom:1px solid rgba(0,0,0,0.03);">
+        <td style="padding:6px;color:#B8894F;font-weight:500;">${i+1}</td>
+        <td style="padding:6px;">${modeLabel}</td>
+        <td style="padding:6px;font-size:11px;color:#8B8680;">${esc(s.ended_at || s.started_at || '')}</td>
+        <td style="padding:6px;">${s.attempt_count}</td>
+        <td style="padding:6px;font-weight:500;">${acc}</td>
+        <td style="padding:6px;font-size:12px;color:#5A5650;">${esc(effect)}</td></tr>`;
+    });
+    html += `</tbody></table></div>`;
+  }
+
+  // ── Trend Summary ──
+  const trend = d.trend_summary || {};
+  if (trend.overall_trend && trend.overall_trend !== 'insufficient_data') {
+    html += `<div class="card" style="margin-top:16px;"><div class="sec-title">最近趋势</div>`;
+    const trendLabels = { improving: '📈 提升中', declining: '📉 下降中', stable: '➡️ 稳定' };
+    html += `<div style="margin-bottom:10px;font-size:14px;color:#2E2C29;">整体趋势：${trendLabels[trend.overall_trend] || trend.overall_trend}（近 ${trend.session_count || '?'} 次练习）</div>`;
+    const sections = [
+      { label: '提升知识点', items: trend.improving_topics || [], color: '#4A7C59' },
+      { label: '下降知识点', items: trend.declining_topics || [], color: '#B55A4A' },
+      { label: '卡住知识点', items: trend.stalled_topics || [], color: '#D4956A' },
+    ];
+    sections.forEach(s => {
+      if (!s.items.length) return;
+      html += `<div style="margin-bottom:6px;font-size:12px;font-weight:500;color:#5A5650;">${s.label}</div>`;
+      s.items.forEach(t => {
+        const deltaStr = (t.avg_delta > 0 ? '+' : '') + (t.avg_delta * 100).toFixed(1) + '%';
+        html += `<div style="display:flex;gap:10px;padding:3px 0;font-size:13px;color:#3A3632;">
+          <span style="font-family:'SF Mono',monospace;font-size:11px;color:#8B8680;">${esc(t.section_id)}</span>
+          <span style="flex:1;">${esc(t.trend || '')}</span>
+          <span style="font-family:'SF Mono',monospace;font-size:12px;color:${s.color};">${deltaStr}</span></div>`;
+      });
+    });
+    html += `</div>`;
+  }
+
+  // ── Memory Facts ──
+  const facts = d.memory_facts || [];
+  if (facts.length > 0) {
+    html += `<div class="card" style="margin-top:16px;"><div class="sec-title">长期记忆</div>`;
+    const typeIcons = { weak_topic: '⚠️', trend: '📊', error_pattern: '🔄', risk: '🚨', strategy_effect: '💡' };
+    facts.forEach(f => {
+      const confidence = Math.round(f.confidence * 100);
+      const icon = typeIcons[f.memory_type] || '📌';
+      let desc = '';
+      if (f.memory_type === 'weak_topic') {
+        desc = `${esc(f.memory_key)} 长期薄弱`;
+      } else if (f.memory_type === 'trend') {
+        desc = `${esc(f.memory_key)}`;
+      } else if (f.memory_type === 'error_pattern') {
+        desc = `${esc(f.memory_key)} 频发`;
+      } else {
+        desc = JSON.stringify(f.value_json || f.memory_key);
+      }
+      html += `<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid rgba(0,0,0,0.03);font-size:13px;color:#3A3632;">
+        <span style="flex-shrink:0;">${icon}</span>
+        <span style="flex:1;">${desc}</span>
+        <span class="badge" style="font-size:10px;background:rgba(184,137,79,0.1);border-color:transparent;">${confidence}%</span></div>`;
+    });
+    html += `</div>`;
+  }
+
   document.getElementById('profileRoot').innerHTML = html;
 
   // Draw Beta canvases
@@ -869,8 +956,13 @@ function pLColor(p) { if(p<0.3)return'#B55A4A'; if(p<0.5)return'#D4956A'; if(p<0
 // ═══════════════════════════════════
 // Init
 // ═══════════════════════════════════
-fetchQuestions();
 loadAnalysisReports();
+const initialTab = location.hash ? location.hash.slice(1) : 'generate';
+if (['quiz', 'profile'].includes(initialTab)) {
+  switchTab(initialTab, false);
+} else {
+  fetchQuestions();
+}
 </script>
 </body>
 </html>

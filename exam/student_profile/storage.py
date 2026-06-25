@@ -1,7 +1,10 @@
 """答题记录存储：attempts 表 + attempt_error_labels 表。"""
 
+import logging
 import os
 import sqlite3
+
+logger = logging.getLogger(__name__)
 
 
 def init_attempts_db(db_path: str = "cache/attempts.db"):
@@ -32,7 +35,8 @@ def init_attempts_db(db_path: str = "cache/attempts.db"):
     # 存量表补齐新列（幂等）
     for col, col_type in [("explanation", "TEXT DEFAULT ''"),
                           ("reason", "TEXT DEFAULT ''"),
-                          ("method", "TEXT DEFAULT 'rule'")]:
+                          ("method", "TEXT DEFAULT 'rule'"),
+                          ("session_id", "INTEGER")]:
         try:
             db.execute(f"ALTER TABLE attempts ADD COLUMN {col} {col_type}")
         except sqlite3.OperationalError:
@@ -41,15 +45,15 @@ def init_attempts_db(db_path: str = "cache/attempts.db"):
     db.close()
 
 
-def record_attempt(db_path: str, **kwargs):
-    """写入一条作答记录。"""
+def record_attempt(db_path: str, session_id: int | None = None, **kwargs) -> int:
+    """写入一条作答记录。返回 attempt_id。"""
     db = sqlite3.connect(db_path)
-    db.execute(
+    cursor = db.execute(
         """INSERT INTO attempts
            (student_id, section_id, topic, question_type, difficulty,
             stem, student_answer, correct_answer, explanation,
-            is_correct, duration_sec, confidence, reason, method)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            is_correct, duration_sec, confidence, reason, method, session_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             kwargs.get("student_id", ""),
             kwargs.get("section_id", ""),
@@ -65,24 +69,41 @@ def record_attempt(db_path: str, **kwargs):
             kwargs.get("confidence", 3),
             kwargs.get("reason", ""),
             kwargs.get("method", "rule"),
+            session_id,
         ),
     )
+    attempt_id = cursor.lastrowid
     db.commit()
     db.close()
+    return attempt_id
 
 
-def record_attempts_batch(db_path: str, records: list[dict]):
-    """批量写入 attempts，事务保护。同时写入 error_labels（错时）。"""
+def record_attempts_batch(
+    db_path: str,
+    records: list[dict],
+    session_id: int | None = None,
+) -> list[int]:
+    """批量写入 attempts，事务保护。同时写入 error_labels（错时）。
+
+    Args:
+        db_path: 数据库路径
+        records: 作答记录列表
+        session_id: 可选，将这批 attempts 归属到指定 session
+
+    Returns:
+        list[int]: 本轮新增的 attempt IDs
+    """
     db = sqlite3.connect(db_path)
+    attempt_ids: list[int] = []
     try:
         with db:
             for r in records:
-                db.execute(
+                cursor = db.execute(
                     """INSERT INTO attempts
                        (student_id, section_id, topic, question_type, difficulty,
                         stem, student_answer, correct_answer, explanation,
-                        is_correct, duration_sec, confidence, reason, method)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        is_correct, duration_sec, confidence, reason, method, session_id)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         r.get("student_id", ""),
                         r.get("section_id", ""),
@@ -98,13 +119,14 @@ def record_attempts_batch(db_path: str, records: list[dict]):
                         r.get("confidence", 3),
                         r.get("reason", ""),
                         r.get("method", "rule"),
+                        session_id,
                     ),
                 )
+                attempt_id = cursor.lastrowid
+                attempt_ids.append(attempt_id)
+
                 # 如果有 LLM 错因诊断结果，同连接写入 error_labels
                 if r.get("error_type"):
-                    attempt_id = db.execute(
-                        "SELECT last_insert_rowid()"
-                    ).fetchone()[0]
                     try:
                         db.execute(
                             """INSERT INTO attempt_error_labels
@@ -121,9 +143,10 @@ def record_attempts_batch(db_path: str, records: list[dict]):
                             ),
                         )
                     except Exception:
-                        pass  # error_labels 写入失败不影响 attempts
+                        logger.exception("error_labels 写入失败 attempt_id=%s", attempt_id)
     finally:
         db.close()
+    return attempt_ids
 
 
 # ── 错因标签表 ──
