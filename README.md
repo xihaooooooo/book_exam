@@ -6,37 +6,44 @@
 
 ## 架构
 
-```
-                    sections.db（教材知识库）
-                          │
-   ┌──────────────────────┼──────────────────────┐
-   │                      │                      │
-   ▼                      ▼                      ▼
-┌─────────────┐   ┌─────────────┐   ┌─────────────┐
-│  ExamGraph  │   │ JudgeGraph  │   │ProfileGraph │
-│             │   │             │   │             │
-│ strategy_   │   │  rule path  │   │  BKT replay │
-│  router     │   │  + LLM path │   │  + Bandit   │
-│    ↓        │   │  + diagnose │   │  + trend    │
-│ chief_      │   │             │   │  + memory   │
-│  editor     │   │  并发 LLM   │   │             │
-│    ↓        │   │  语义判定   │   │  实时画像   │
-│ Send fan-   │   │  + 错因诊断 │   │  聚合       │
-│  out to N   │   │             │   │             │
-│  pipelines  │   └─────────────┘   └─────────────┘
-│    ↓        │          │                 │
-│ quality_    │          ▼                 ▼
-│  reviewer   │    attempts + error_labels + sessions
-│    ↓        │
-│ final_      │
-│  editor     │
-└─────────────┘
-    │
-    ▼
-web/index.html ── /api/generate /api/submit-exam /api/profile
+```mermaid
+graph TD
+    sections[("sections.db<br/>教材知识库")]
+
+    sections --> ExamGraph
+    sections --> JudgeGraph
+    sections --> ProfileGraph
+
+    subgraph ExamGraph[ExamGraph 出题 Agent]
+        SR[strategy_router] --> CE[chief_editor]
+        CE --> Send[Send Fan-out N pipelines]
+        Send --> QR[quality_reviewer]
+        QR --> FE[final_editor]
+    end
+
+    subgraph JudgeGraph[JudgeGraph 判题 Agent]
+        RP[rule path<br/>零 LLM]
+        LP[LLM path<br/>语义判定]
+        DG[diagnose<br/>错因诊断]
+        RP -.-> DG
+        LP -.-> DG
+    end
+
+    subgraph ProfileGraph[ProfileGraph 画像 Agent]
+        BKT[BKT replay]
+        Bandit[Bandit rec]
+        Trend[trend]
+        Mem[memory]
+    end
+
+    ExamGraph --> Q[("questions")]
+    JudgeGraph --> DB[("attempts<br/>error_labels<br/>sessions")]
+    ProfileGraph --> DB
+    Q --> web["web/index.html<br/>出题/答题/画像"]
+    DB --> ProfileGraph
 ```
 
-**三个 Agent 不直接通信**，通过 `attempts` / `error_labels` / `learning_sessions` 三张表完成数据接力。
+三个 Agent 不直接通信，通过 `attempts` / `error_labels` / `learning_sessions` 三张表完成数据接力。
 
 ---
 
@@ -54,17 +61,42 @@ LangGraph 深度编排的出题流水线，支持三种模式：
 
 **图结构**：
 
-```
-strategy_router  →  chief_editor（工具循环）  →  Send Fan-out  →  final_editor
-                       │
-                get_section_text         ┌─────┼─────┐
-                search_keyword         task1  task2  taskN（每条独立流水线）
-                peek_section                │
-                                     generation_pipeline（子图）
-                                     knowledge_extractor → generator → quality_reviewer
-                                                           │
-                                               choice / fill / short / code / comprehensive
-                                              （按题型路由到 5 个生成器之一）
+```mermaid
+graph TD
+    Start((START)) --> SR[strategy_router]
+    SR --> CE[chief_editor]
+    CE -->|tools| T{tool loop}
+    T -->|search_keyword| CE
+    T -->|get_section_text| CE
+    T -->|peek_section| CE
+    T -->|done| M[Msg Clear]
+    M -->|Send| T1[task_1]
+    M -->|Send| T2[task_2]
+    M -->|Send| TN[task_N]
+
+    subgraph Pipeline[generation_pipeline 子图]
+        KE[knowledge_extractor] -->|tools| KT{tool loop}
+        KT --> KE
+        KT -->|done| RT{route by type}
+        RT --> CG[choice]
+        RT --> FG[fill_blank]
+        RT --> SG[short_answer]
+        RT --> CG2[code_fill]
+        RT --> CPG[comprehensive]
+        CG --> QR
+        FG --> QR
+        SG --> QR
+        CG2 --> QR
+        CPG --> QR
+        QR[quality_reviewer] -->|fail| RT
+        QR -->|pass| End
+    end
+
+    T1 --> Pipeline
+    T2 --> Pipeline
+    TN --> Pipeline
+    Pipeline --> FE[final_editor]
+    FE --> End2((END))
 ```
 
 **核心 LangGraph 特性**：
@@ -78,16 +110,16 @@ strategy_router  →  chief_editor（工具循环）  →  Send Fan-out  →  fi
 
 双路径判题管道：
 
-```
-choice / fill_blank          short_answer / comprehensive
-      │                              │
-   文本规则（毫秒级）            LLM 语义判定（asyncio.gather 并发）
-      │                              │
-      └──────────┬───────────────────┘
-                 │
-          答错 → LLM 错因诊断（并发）
-                 │
-           aggregated results + error_labels
+```mermaid
+graph LR
+    A[answers] --> C{classify}
+    C -->|choice / fill| R[rule match]
+    C -->|short / comprehensive| L[LLM judge<br/>asyncio.gather]
+    R --> M{is_correct?}
+    L --> M
+    M -->|no| D[LLM diagnose<br/>error_type + evidence + suggestion]
+    M -->|yes| O[result]
+    D --> O
 ```
 
 - 客观题零 LLM 消耗，双 Semaphore 隔离防止拥塞
@@ -97,14 +129,22 @@ choice / fill_blank          short_answer / comprehensive
 
 从作答历史实时聚合：
 
-```
-attempts → 按 topic 分组 → BKT 回放 → P(L) 掌握概率 → mastery_level
-                                │
-error_labels ──────────────────→ dominant_error_type
-                                │
-learning_sessions ────────────→ session_reward → Bandit 推荐
-                                │
-                                    画像 + 推荐计划
+```mermaid
+graph LR
+    A[attempts] --> G[group by topic]
+    G --> B[BKT replay]
+    B --> P[P of L probability]
+    P --> ML[mastery_level]
+
+    E[error_labels] --> DE[dominant_error_type]
+
+    S[learning_sessions] --> SR[session_reward]
+    SR --> RD[Bandit recommendation]
+
+    P --> RD
+    DE --> RD
+    RD --> Profile[profile + recommendation plan]
+    ML --> Profile
 ```
 
 ---
@@ -115,11 +155,20 @@ learning_sessions ────────────→ session_reward → Ban
 
 对每个知识点独立建模，每一步有 3 个操作：
 
-```
-1. 学习转移:  P(L) = P(L) + (1-P(L)) × P(T)
-2. 贝叶斯更新: 根据答对/答错修正 P(L)
-3. 钳制: [0.001, 0.999]
-```
+**Step 1 — 学习转移**
+
+$$P(L) \leftarrow P(L) + (1 - P(L)) \times P(T)$$
+
+> 还不会的部分里，有 P(T)=15% 的概率学会。P(L) 越高涨越慢——空间小了。
+
+**Step 2 — 贝叶斯更新**
+
+- 答对：$P(L) \leftarrow \dfrac{P(L) \times (1 - P(S))}{P(L) \times (1 - P(S)) + (1 - P(L)) \times P(G)}$
+- 答错：$P(L) \leftarrow \dfrac{P(L) \times P(S)}{P(L) \times P(S) + (1 - P(L)) \times (1 - P(G))}$
+
+**Step 3 — 钳制**
+
+$$P(L) \leftarrow \mathrm{clamp}(P(L),\ 0.001,\ 0.999)$$
 
 | 参数 | 默认值 | 含义 |
 |---|---|---|
@@ -131,11 +180,11 @@ learning_sessions ────────────→ session_reward → Ban
 ### Thompson Sampling（Bandit 推荐）
 
 ```
-alpha = 1 + 3 × (1 - P(L))  + session_reward_boost
+alpha = 1 + 3 × (1 - P(L)) + session_reward_boost
 beta  = 1 + 3 × P(L)
 
-bandit_score = random.betavariate(alpha, beta)   # practice 模式
-bandit_score = alpha / (alpha + beta)            # 画像展示（稳定排序）
+bandit_score ~ Beta(alpha, beta)              # practice（Thompson Sampling）
+bandit_score = alpha / (alpha + beta)          # 画像展示（稳定均值）
 ```
 
 - P(L) 低 → alpha 大 → Beta 均值高 → 排名靠前（需要练）
@@ -144,16 +193,21 @@ bandit_score = alpha / (alpha + beta)            # 画像展示（稳定排序�
 
 ### Session 闭环
 
-```
-practice 开始 → pre-snapshot（拍照）
-    ↓
-出题 → 答题 → 判题
-    ↓
-practice 结束 → post-snapshot → P(L) delta
-    ↓
-delta 存入 session，下次 Bandit 加权
-    ↓
-练后突破的知识点 → 趁热打铁；巩固完成 → 自然退场
+```mermaid
+sequenceDiagram
+    participant Start as 开始 practice
+    participant Pre as pre-snapshot
+    participant Q as 出题/答题/判题
+    participant Post as post-snapshot
+    participant Delta as P(L) delta
+    participant Next as 下次 Bandit
+
+    Start->>Pre: 拍照 P(L) before
+    Pre->>Q: 练习
+    Q->>Post: 拍照 P(L) after
+    Post->>Delta: P(L) after - P(L) before
+    Delta->>Next: delta 叠加到 Bandit alpha
+    Note over Next: 突破→趁热打铁<br/>巩固→自然退场
 ```
 
 ---
