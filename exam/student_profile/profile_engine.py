@@ -7,8 +7,14 @@
 """
 
 import sqlite3
+import logging
 from dataclasses import dataclass, field
-from exam.student_profile.schemas import ERROR_TYPES, ERROR_TYPE_LABELS, ERROR_PRIORITY
+from exam.student_profile.schemas import (
+    ERROR_TYPES, ERROR_TYPE_LABELS, ERROR_PRIORITY,
+    BKTParams, BKTState,
+)
+
+logger = logging.getLogger(__name__)
 
 
 RECENT_WINDOW = 10
@@ -31,6 +37,7 @@ class TopicStat:
     dominant_error_type: str = ""
     streak_wrong: int = 0
     mastery_level: str = "unknown"
+    bkt_state: any = None  # BKTState | None — BKT 后端填充，阈值后端为 None
 
 
 @dataclass
@@ -61,14 +68,33 @@ class StudentProfile:
         return summary
 
 
-# ── 主入口 ──
+# ── 公共数据加载 ──
 
-def build_profile(student_id: str, db_path: str) -> StudentProfile:
-    """从数据库聚合学生画像。"""
-    db = sqlite3.connect(db_path)
-    db.row_factory = sqlite3.Row
+def normalize_section_id(section_id: str) -> str:
+    """归一化章节编号到粗粒度（章.节）。
 
-    # 所有作答（按时间排序）
+    "1.1.2" → "1.1", "2.3.1" → "2.3", "1.1" → "1.1"
+
+    消除 LLM 出题（细粒度）和手写题（粗粒度）之间的粒度不一致。
+    """
+    if not section_id:
+        return ""
+    parts = section_id.split(".")
+    if len(parts) > 2:
+        return ".".join(parts[:2])
+    return section_id
+
+
+def _load_topic_groups(db: sqlite3.Connection, student_id: str
+                       ) -> tuple[list, dict[tuple[str, str], list]]:
+    """加载学生所有 attempts，按 (section_id, topic) 分组。
+
+    BKT 回放和阈值评估共用此函数，避免重复的 DB 查询和分组逻辑。
+
+    Returns:
+        (all_attempts, groups) — all_attempts 按时间升序，
+        groups 为 {(section_id, topic): [attempts]}
+    """
     attempts = db.execute(
         """SELECT * FROM attempts
            WHERE student_id = ? AND section_id != ''
@@ -77,28 +103,64 @@ def build_profile(student_id: str, db_path: str) -> StudentProfile:
     ).fetchall()
 
     if not attempts:
+        return [], {}
+
+    # 转 dict + 归一化 section_id，消除 1.1.2 vs 1.1 的粒度分裂
+    normalized = []
+    for a in attempts:
+        d = dict(a)
+        d["section_id"] = normalize_section_id(d["section_id"])
+        normalized.append(d)
+
+    groups: dict[tuple[str, str], list] = {}
+    for d in normalized:
+        key = (d["section_id"], d["topic"] or "")
+        if key not in groups:
+            groups[key] = []
+        groups[key].append(d)
+
+    return normalized, groups
+
+
+# ── 主入口 ──
+
+def build_profile(student_id: str, db_path: str,
+                  mastery_backend: str = "threshold") -> StudentProfile:
+    """从数据库聚合学生画像。
+
+    Args:
+        student_id: 学生标识
+        db_path: attempts.db 路径
+        mastery_backend: 掌握评估后端 — "threshold"（硬阈值，默认）或 "bkt"
+    """
+    db = sqlite3.connect(db_path)
+    db.row_factory = sqlite3.Row
+
+    all_attempts, groups = _load_topic_groups(db, student_id)
+
+    if not all_attempts:
         db.close()
         return StudentProfile(student_id=student_id)
 
     # 全局统计
-    total = len(attempts)
-    correct_count = sum(1 for a in attempts if a["is_correct"])
+    total = len(all_attempts)
+    correct_count = sum(1 for a in all_attempts if a["is_correct"])
     overall_accuracy = correct_count / total if total > 0 else 0.0
-
-    # 按 (section_id, topic) 分组
-    groups: dict[tuple[str, str], list] = {}
-    for a in attempts:
-        key = (a["section_id"], a["topic"] or "")
-        if key not in groups:
-            groups[key] = []
-        groups[key].append(a)
 
     # 聚合每个 topic
     topics = []
     for (sid, topic), group in groups.items():
-        stat = _compute_topic_stat(sid, topic, group, all_attempts=attempts)
+        stat = _compute_topic_stat(sid, topic, group, all_attempts=all_attempts)
         stat.dominant_error_type = _get_dominant_error(db, group)
-        stat.mastery_level = _compute_mastery(stat)
+
+        if mastery_backend == "bkt":
+            bkt = _bkt_replay(group, BKTParams())
+            stat.mastery_level = _compute_mastery_bkt(bkt.p_mastery, stat.total_attempts)
+            # 附加 BKT 状态到 TopicStat（非标准字段，用于下游推荐引擎）
+            stat.bkt_state = bkt  # type: ignore[attr-defined]
+        else:
+            stat.mastery_level = _compute_mastery(stat)
+
         topics.append(stat)
 
     # 错因分布
@@ -108,6 +170,10 @@ def build_profile(student_id: str, db_path: str) -> StudentProfile:
     risks = _detect_risk_signals(topics, error_dist)
 
     db.close()
+
+    logger.info("profile: student=%s, backend=%s, topics=%d, accuracy=%.0f%%",
+                student_id, mastery_backend, len(topics), overall_accuracy * 100)
+
     return StudentProfile(
         student_id=student_id,
         topics=topics,
@@ -182,6 +248,190 @@ def _compute_mastery(stat: TopicStat) -> str:
         # familiar：对但不够熟练
         return "familiar"
     return "unknown"
+
+
+# ── BKT 掌握评估 ──
+
+
+def _bkt_replay(attempts: list, params: BKTParams) -> BKTState:
+    """按时间序列回放 BKT，计算当前 P(L)。
+
+    每次答题：
+    1. 学习转移：P(L) = P(L) + (1-P(L)) × P(T)
+    2. 贝叶斯更新：根据答对/答错更新 P(L)
+    3. 钳制在 [0.001, 0.999] 防止数值坍缩
+
+    Args:
+        attempts: 按 created_at 升序的 attempt rows（单个 topic）
+        params: BKT 超参数
+
+    Returns:
+        BKTState，含最终 P(L) 和轨迹信息
+    """
+    p_L = params.p_L0
+    p_initial = p_L
+    correct_count = 0
+
+    for a in attempts:
+        # 1. 学习转移
+        p_L = p_L + (1.0 - p_L) * params.p_T
+
+        # 2. 贝叶斯更新
+        if a["is_correct"]:
+            p_correct_given_known = 1.0 - params.p_S
+            p_correct_given_unknown = params.p_G
+            p_obs = p_L * p_correct_given_known + (1 - p_L) * p_correct_given_unknown
+            if p_obs > 0:
+                p_L = p_L * p_correct_given_known / p_obs
+            correct_count += 1
+        else:
+            p_wrong_given_known = params.p_S
+            p_wrong_given_unknown = 1.0 - params.p_G
+            p_obs = p_L * p_wrong_given_known + (1 - p_L) * p_wrong_given_unknown
+            if p_obs > 0:
+                p_L = p_L * p_wrong_given_known / p_obs
+
+        # 3. 钳制
+        p_L = max(0.001, min(0.999, p_L))
+
+    sid = attempts[0]["section_id"] if attempts else ""
+    topic = attempts[0]["topic"] if attempts else ""
+
+    return BKTState(
+        section_id=sid,
+        topic=topic or "",
+        p_mastery=p_L,
+        p_initial=p_initial,
+        total_attempts=len(attempts),
+        correct_count=correct_count,
+        params=params,
+    )
+
+
+def _compute_mastery_bkt(p_mastery: float, total_attempts: int) -> str:
+    """将 BKT P(L) 映射到 categorical 掌握等级（用于展示兼容）。
+
+    映射规则：
+      P(L) ≥ 0.85 且 total_attempts ≥ 5 → mastered（证据充分）
+      P(L) ≥ 0.85 但 total_attempts < 5 → familiar（样本不足，先不标 mastered）
+      P(L) ≥ 0.70 → familiar
+      P(L) ≥ 0.50 → unstable
+      P(L) <  0.50 → weak（或 unknown，如果 attempt 太少）
+    """
+    if total_attempts < 2:
+        return "unknown"
+    if p_mastery >= 0.85 and total_attempts >= 5:
+        return "mastered"
+    if p_mastery >= 0.70:
+        return "familiar"
+    if p_mastery >= 0.50:
+        return "unstable"
+    return "weak"
+
+
+# ── Session 奖励计算（Phase 2 闭环）──
+
+SESSION_GAP_MINUTES = 30  # 两次作答间隔超过此值视为不同 session
+
+
+def compute_session_rewards(
+    db_path: str,
+    student_id: str,
+    params: BKTParams = None,
+) -> dict[str, float]:
+    """按时间窗口切分 session，计算每个 topic 的累计 ΔP(L) 奖励。
+
+    流程：
+    1. 加载学生所有 attempts，按 topic 分组，时间升序
+    2. 间隔 > 30 分钟的切为一个 session
+    3. 对每个 session：BKT 回放得到 pre/post P(L)
+    4. reward = max(0, P(L)_post - P(L)_pre)  →  累加到 total
+
+    Args:
+        db_path: attempts.db 路径
+        student_id: 学生标识
+        params: BKT 参数，默认用文献值
+
+    Returns:
+        {section_id: cumulative_reward}  — reward ∈ [0, 1] per session，
+        多个 session 的 reward 累加后可能 > 1
+    """
+    import sqlite3
+    from datetime import datetime, timedelta
+
+    if params is None:
+        params = BKTParams()
+
+    db = sqlite3.connect(db_path)
+    db.row_factory = sqlite3.Row
+
+    all_attempts, groups = _load_topic_groups(db, student_id)
+    db.close()
+
+    if not groups:
+        return {}
+
+    def _parse_time(ts: str):
+        """解析 SQLite datetime 字符串。"""
+        try:
+            return datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")
+        except (ValueError, TypeError):
+            return datetime.min
+
+    rewards: dict[str, float] = {}
+
+    for (sid, _), group in groups.items():
+        if len(group) < 2:
+            # 少于 2 题无法切 session，用全局 ΔP(L) = P(L) - P(L₀)
+            state = _bkt_replay(group, params)
+            rewards[sid] = max(0.0, state.p_mastery - state.p_initial)
+            continue
+
+        # 按时序切 session
+        sessions: list[list] = []
+        current_session: list = [group[0]]
+
+        for i in range(1, len(group)):
+            prev_time = _parse_time(group[i - 1]["created_at"])
+            curr_time = _parse_time(group[i]["created_at"])
+            gap = (curr_time - prev_time).total_seconds() / 60.0
+
+            if gap > SESSION_GAP_MINUTES:
+                sessions.append(current_session)
+                current_session = [group[i]]
+            else:
+                current_session.append(group[i])
+        sessions.append(current_session)  # 最后一个 session
+
+        # 只有一个 session → 全局 reward
+        if len(sessions) == 1:
+            state = _bkt_replay(group, params)
+            rewards[sid] = max(0.0, state.p_mastery - state.p_initial)
+            continue
+
+        # 多个 session → 每个 session 的 ΔP(L) 累加
+        cumulative = 0.0
+        for session in sessions:
+            pre_state = params.p_L0  # 该 session 开始前的 P(L)
+            if session[0] is not group[0]:
+                # 回放 session 之前的所有 attempts 得到 pre-P(L)
+                idx = group.index(session[0])
+                pre_attempts = group[:idx]
+                if pre_attempts:
+                    pre_state = _bkt_replay(pre_attempts, params).p_mastery
+
+            post_state = _bkt_replay(
+                group[:group.index(session[-1]) + 1], params
+            ).p_mastery
+
+            reward = max(0.0, post_state - pre_state)
+            cumulative += reward
+
+        rewards[sid] = cumulative
+        logger.debug("session_rewards: %s, sessions=%d, cumulative_reward=%.3f",
+                     sid, len(sessions), cumulative)
+
+    return rewards
 
 
 # ── 错因分布 ──

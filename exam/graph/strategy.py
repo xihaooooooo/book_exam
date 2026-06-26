@@ -1,25 +1,14 @@
 """策略路由节点。根据 mode 推导 focus / target_count / allowed_types。
 
-practice 模式调用 ProfileGraph Agent 获取完整画像，
-根据掌握等级 + 主要错因推导出题策略。
+practice 模式调用 ProfileGraph Agent（BKT 后端）+ 推荐引擎（Thompson Sampling），
+根据掌握概率 + 主要错因推导结构化出题策略。
 """
 
 import logging
 from exam.agents.utils.agent_states import AgentState
 from exam.graph.profile_graph import ProfileGraph
-from exam.student_profile.schemas import ERROR_TYPE_LABELS
 
 logger = logging.getLogger(__name__)
-
-# 错因 → 推荐题型映射
-ERROR_TYPE_QUESTIONS = {
-    "concept_confusion":  ["choice", "short_answer"],    # 辨析题
-    "reasoning_error":    ["short_answer", "comprehensive"],  # 推理链
-    "memory_gap":         ["choice", "fill_blank"],      # 记忆型
-    "transfer_failure":   ["choice", "short_answer", "comprehensive"],  # 变体
-    "misread_question":   ["choice"],                     # 审题
-    "careless":           ["choice", "fill_blank"],      # 控制难度
-}
 
 
 def strategy_router(state: AgentState) -> dict:
@@ -44,62 +33,126 @@ def strategy_router(state: AgentState) -> dict:
     elif mode == "practice":
         student_id = state.get("student_id", "")
         if student_id:
-            # 调 ProfileGraph Agent 拿画像
             attempts_db = db_path.replace("sections.db", "attempts.db")
+
+            # 调 ProfileGraph Agent，使用 BKT 后端获取连续掌握概率
             pg = ProfileGraph()
-            result = pg.invoke({"student_id": student_id, "db_path": attempts_db})
+            result = pg.invoke({
+                "student_id": student_id,
+                "db_path": attempts_db,
+                "mastery_backend": "bkt",
+            })
             profile = result.get("profile", {})
 
             topics = profile.get("topics", [])
             data_ok = profile.get("total_attempts", 0) > 0
 
             if data_ok:
-                # 按掌握等级排序：weak > unstable > familiar
-                weak_topics = [t for t in topics
-                               if t.get("mastery_level") in ("weak", "unstable")]
-                familiar = [t for t in topics
-                           if t.get("mastery_level") == "familiar"]
+                # 提取 BKT 状态和错因映射
+                from exam.student_profile.schemas import BKTState, BKTParams
+                from exam.student_profile.recommendation import build_recommendation_plan, recommendation_key
 
-                if weak_topics:
-                    if not focus:
-                        focus = ",".join(t["section_id"] for t in weak_topics)
-                    if target_count <= 0:
-                        target_count = min(len(weak_topics) * 2 + len(familiar), 30)
+                bkt_states: list[BKTState] = []
+                error_map: dict[str, str] = {}
 
-                    # 根据主要错因推导题型
-                    dominant_errors = set(
-                        t.get("dominant_error_type", "")
-                        for t in weak_topics
-                        if t.get("dominant_error_type")
+                for t in topics:
+                    bkt_dict = t.get("bkt_state")
+                    if bkt_dict and isinstance(bkt_dict, dict):
+                        # ProfileGraph asdict() 序列化 → 还原为 BKTState
+                        params_dict = bkt_dict.get("params", {})
+                        bkt_states.append(BKTState(
+                            section_id=bkt_dict["section_id"],
+                            topic=bkt_dict.get("topic", ""),
+                            p_mastery=bkt_dict["p_mastery"],
+                            p_initial=bkt_dict["p_initial"],
+                            total_attempts=bkt_dict["total_attempts"],
+                            correct_count=bkt_dict["correct_count"],
+                            params=BKTParams(
+                                p_L0=params_dict.get("p_L0", 0.3),
+                                p_T=params_dict.get("p_T", 0.15),
+                                p_G=params_dict.get("p_G", 0.2),
+                                p_S=params_dict.get("p_S", 0.1),
+                            ),
+                        ))
+                    error_map[recommendation_key(
+                        t["section_id"],
+                        t.get("topic", ""),
+                    )] = t.get("dominant_error_type", "")
+
+                # Phase 2：计算 session 奖励（优先显式 session，回退时间窗口）
+                from exam.student_profile.profile_engine import compute_session_rewards as _old_rewards
+                from exam.student_profile.trend_engine import compute_explicit_session_rewards, build_trend_summary
+                from exam.student_profile.memory_engine import get_active_memory_facts
+                session_rewards = compute_explicit_session_rewards(
+                    attempts_db, student_id)
+                if session_rewards is None:
+                    # 尚无显式 session 数据，回退时间窗口算法
+                    from exam.student_profile.profile_engine import BKTParams as _BKTParams
+                    session_rewards = _old_rewards(
+                        attempts_db, student_id, _BKTParams())
+                    logger.info("strategy: 回退到时间窗口 session reward")
+
+                # Phase 4：加载趋势和长期记忆上下文
+                trend_summary = build_trend_summary(attempts_db, student_id, window=5)
+                memory_facts = get_active_memory_facts(attempts_db, student_id)
+
+                # 调推荐引擎：BKT P(L) → Bandit 排序 → RecommendationPlan
+                if not target_count or target_count <= 0:
+                    target_count = min(len(bkt_states) * 3, 20)
+
+                plan = build_recommendation_plan(
+                    bkt_states=bkt_states,
+                    error_map=error_map,
+                    student_id=student_id,
+                    target_count=target_count,
+                    session_rewards=session_rewards,
+                    trend_summary=trend_summary,
+                    memory_facts=memory_facts,
+                )
+
+                if plan.items:
+                    focus = ",".join(
+                        f"{item.section_id} ({item.topic})"
+                        for item in plan.items
                     )
-                    if not allowed_types and dominant_errors:
-                        qtypes = set()
-                        for etype in dominant_errors:
-                            qtypes.update(ERROR_TYPE_QUESTIONS.get(etype, ["choice"]))
-                        allowed_types = ",".join(list(qtypes)[:3])
+                    target_count = plan.target_count
 
-                    # 难度：看信心和连续错误
-                    has_high_confidence_error = any(
-                        t.get("streak_wrong", 0) >= 2
-                        for t in weak_topics
-                    )
-                    difficulty = "easy" if has_high_confidence_error else "easy_to_medium"
+                    # 收集所有推荐题型
+                    all_types: set[str] = set()
+                    for item in plan.items:
+                        all_types.update(item.question_types)
+                    allowed_types = ",".join(list(all_types)[:3])
+
+                    # 难度取第一个（最高优先级）的推荐
+                    first_difficulty = plan.items[0].difficulty if plan.items else "easy"
 
                     practice_plan = {
                         "student_id": student_id,
-                        "focus_sections": [t["section_id"] for t in weak_topics],
-                        "focus_topics": [t.get("topic", "") for t in weak_topics],
-                        "question_types": allowed_types.split(",") if allowed_types else [],
-                        "difficulty": difficulty,
+                        "focus_sections": [item.section_id for item in plan.items],
+                        "focus_topics": [item.topic for item in plan.items],
+                        "question_types": list(all_types),
+                        "difficulty": first_difficulty,
                         "target_count": target_count,
-                        "reason": _build_reason(profile),
+                        "reason": plan.reason,
+                        "p_mastery": {
+                            item.section_id: f"{item.p_mastery:.0%}"
+                            for item in plan.items
+                        },
+                        "recommendation_table": plan.to_prompt_table(),
                     }
 
                     logger.info(
-                        "strategy: practice mode via ProfileGraph, student=%s, "
-                        "weak=%d, focus=%s, types=%s",
-                        student_id, len(weak_topics), focus, allowed_types,
+                        "strategy: practice mode via BKT+Bandit, student=%s, "
+                        "topics=%d, items=%d, target=%d",
+                        student_id, len(topics), len(plan.items), target_count,
                     )
+                else:
+                    logger.warning("strategy: 推荐引擎无产出，回退阈值模式")
+                    focus, target_count, allowed_types = _fallback_threshold(
+                        topics, focus, target_count, allowed_types)
+
+            else:
+                logger.warning("strategy: practice mode 无数据，回退通用出题")
 
         # 没有数据时回退
         if not practice_plan and not focus:
@@ -116,25 +169,32 @@ def strategy_router(state: AgentState) -> dict:
     }
 
 
-def _build_reason(profile: dict) -> str:
-    """基于画像生成推荐原因。"""
-    mastery_summary = profile.get("mastery_summary", {})
-    weak_count = mastery_summary.get("weak", 0)
-    unstable_count = mastery_summary.get("unstable", 0)
+def _fallback_threshold(topics: list, focus: str, target_count: int,
+                        allowed_types: str):
+    """BKT+Bandit 无产出时，回退阈值模式的出题策略。"""
+    weak_topics = [t for t in topics
+                   if t.get("mastery_level") in ("weak", "unstable")]
+    familiar = [t for t in topics
+               if t.get("mastery_level") == "familiar"]
 
-    error_dist = profile.get("error_distribution", {})
-    top_errors = sorted(error_dist.items(), key=lambda x: x[1], reverse=True)[:2]
-    error_reason = ""
-    if top_errors:
-        labels = [ERROR_TYPE_LABELS.get(e[0], e[0]) for e in top_errors]
-        error_reason = f"，主要错因：{'、'.join(labels)}"
+    if weak_topics:
+        if not focus:
+            focus = ",".join(t["section_id"] for t in weak_topics)
+        if target_count <= 0:
+            target_count = min(len(weak_topics) * 2 + len(familiar), 30)
 
-    risks = profile.get("risk_signals", [])
-    risk_note = ""
-    if risks:
-        risk_note = f"。风险：{risks[0]}" if risks else ""
+        # 根据主要错因推导题型
+        dominant_errors = set(
+            t.get("dominant_error_type", "")
+            for t in weak_topics
+            if t.get("dominant_error_type")
+        )
+        if not allowed_types and dominant_errors:
+            from exam.student_profile.schemas import ERROR_TYPE_QUESTIONS
+            qtypes = set()
+            for etype in dominant_errors:
+                qtypes.update(ERROR_TYPE_QUESTIONS.get(etype, ["choice"]))
+            allowed_types = ",".join(list(qtypes)[:3])
 
-    return (
-        f"薄弱 {weak_count} 个、不稳定 {unstable_count} 个知识点"
-        f"{error_reason}{risk_note}"
-    )
+    logger.info("strategy: fallback threshold, weak=%d", len(weak_topics))
+    return focus, target_count, allowed_types

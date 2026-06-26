@@ -97,7 +97,7 @@ def _make_fallback(schema_cls):
 
 
 def _make_example(schema_cls) -> dict:
-    """生成一个示例 JSON"""
+    """生成一个示例 JSON，原生类型用类型匹配的示例值。"""
     example = {}
     from pydantic import BaseModel
     import typing
@@ -107,12 +107,22 @@ def _make_example(schema_cls) -> dict:
         # 处理 list 类型：展开泛型子类型
         if hasattr(annotation, "__origin__") and annotation.__origin__ is list:
             args = typing.get_args(annotation)
-            if args and issubclass(args[0], BaseModel):
+            if args and isinstance(args[0], type) and issubclass(args[0], BaseModel):
                 example[field_name] = [_make_example(args[0])]
             else:
                 example[field_name] = [f"<{field_info.description or field_name}>"]
+        # 嵌套 BaseModel
         elif isinstance(annotation, type) and issubclass(annotation, BaseModel):
             example[field_name] = _make_example(annotation)
+        # bool: 用 false 而非字符串占位符，避免误导 LLM
+        elif annotation is bool:
+            example[field_name] = False
+        # int
+        elif annotation is int:
+            example[field_name] = 0
+        # float
+        elif annotation is float:
+            example[field_name] = 0.0
         else:
             example[field_name] = f"<{field_info.description or field_name}>"
     return example

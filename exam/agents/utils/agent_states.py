@@ -54,7 +54,7 @@ class AgentState(MessagesState):
 
 # ── 判题图状态 ──
 
-from typing import TypedDict, Optional
+from typing import TypedDict
 
 class JudgeState(TypedDict):
     """批量判题状态。"""
@@ -63,5 +63,6 @@ class JudgeState(TypedDict):
                             # 输入：question_type, student_answer, correct_answer,
                             #       stem, explanation, section_id, topic, difficulty,
                             #       duration_sec, confidence
-                            # 输出（judge_all 填充）：is_correct, reason, method
-    llm_client: Optional[object]
+                            # 输出（judge_all 填充）：is_correct, reason, method,
+                            #       error_type, error_evidence, error_suggestion,
+                            #       diagnosis_confidence（仅答错时）

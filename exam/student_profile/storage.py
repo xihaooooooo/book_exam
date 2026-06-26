@@ -1,7 +1,10 @@
 """答题记录存储：attempts 表 + attempt_error_labels 表。"""
 
+import logging
 import os
 import sqlite3
+
+logger = logging.getLogger(__name__)
 
 
 def init_attempts_db(db_path: str = "cache/attempts.db"):
@@ -32,7 +35,8 @@ def init_attempts_db(db_path: str = "cache/attempts.db"):
     # 存量表补齐新列（幂等）
     for col, col_type in [("explanation", "TEXT DEFAULT ''"),
                           ("reason", "TEXT DEFAULT ''"),
-                          ("method", "TEXT DEFAULT 'rule'")]:
+                          ("method", "TEXT DEFAULT 'rule'"),
+                          ("session_id", "INTEGER")]:
         try:
             db.execute(f"ALTER TABLE attempts ADD COLUMN {col} {col_type}")
         except sqlite3.OperationalError:
@@ -41,15 +45,15 @@ def init_attempts_db(db_path: str = "cache/attempts.db"):
     db.close()
 
 
-def record_attempt(db_path: str, **kwargs):
-    """写入一条作答记录。"""
+def record_attempt(db_path: str, session_id: int | None = None, **kwargs) -> int:
+    """写入一条作答记录。返回 attempt_id。"""
     db = sqlite3.connect(db_path)
-    db.execute(
+    cursor = db.execute(
         """INSERT INTO attempts
            (student_id, section_id, topic, question_type, difficulty,
             stem, student_answer, correct_answer, explanation,
-            is_correct, duration_sec, confidence, reason, method)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            is_correct, duration_sec, confidence, reason, method, session_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             kwargs.get("student_id", ""),
             kwargs.get("section_id", ""),
@@ -65,24 +69,41 @@ def record_attempt(db_path: str, **kwargs):
             kwargs.get("confidence", 3),
             kwargs.get("reason", ""),
             kwargs.get("method", "rule"),
+            session_id,
         ),
     )
+    attempt_id = cursor.lastrowid
     db.commit()
     db.close()
+    return attempt_id
 
 
-def record_attempts_batch(db_path: str, records: list[dict]):
-    """批量写入 attempts，事务保护。student_id 从每条 record 中取。"""
+def record_attempts_batch(
+    db_path: str,
+    records: list[dict],
+    session_id: int | None = None,
+) -> list[int]:
+    """批量写入 attempts，事务保护。同时写入 error_labels（错时）。
+
+    Args:
+        db_path: 数据库路径
+        records: 作答记录列表
+        session_id: 可选，将这批 attempts 归属到指定 session
+
+    Returns:
+        list[int]: 本轮新增的 attempt IDs
+    """
     db = sqlite3.connect(db_path)
+    attempt_ids: list[int] = []
     try:
         with db:
             for r in records:
-                db.execute(
-                    """INSERT OR IGNORE INTO attempts
+                cursor = db.execute(
+                    """INSERT INTO attempts
                        (student_id, section_id, topic, question_type, difficulty,
                         stem, student_answer, correct_answer, explanation,
-                        is_correct, duration_sec, confidence, reason, method)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        is_correct, duration_sec, confidence, reason, method, session_id)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         r.get("student_id", ""),
                         r.get("section_id", ""),
@@ -98,10 +119,34 @@ def record_attempts_batch(db_path: str, records: list[dict]):
                         r.get("confidence", 3),
                         r.get("reason", ""),
                         r.get("method", "rule"),
+                        session_id,
                     ),
                 )
+                attempt_id = cursor.lastrowid
+                attempt_ids.append(attempt_id)
+
+                # 如果有 LLM 错因诊断结果，同连接写入 error_labels
+                if r.get("error_type"):
+                    try:
+                        db.execute(
+                            """INSERT INTO attempt_error_labels
+                               (attempt_id, error_type, confidence, source,
+                                evidence, suggestion)
+                               VALUES (?, ?, ?, ?, ?, ?)""",
+                            (
+                                attempt_id,
+                                r["error_type"],
+                                r.get("diagnosis_confidence", 0.85),
+                                "llm",
+                                (r.get("error_evidence") or "")[:500],
+                                (r.get("error_suggestion") or "")[:500],
+                            ),
+                        )
+                    except Exception:
+                        logger.exception("error_labels 写入失败 attempt_id=%s", attempt_id)
     finally:
         db.close()
+    return attempt_ids
 
 
 # ── 错因标签表 ──
@@ -155,3 +200,64 @@ def get_error_labels_for_attempt(db_path: str, attempt_id: int) -> list[dict]:
          "confidence": r[3], "source": r[4], "evidence": r[5], "suggestion": r[6]}
         for r in rows
     ]
+
+
+def apply_attempt_correction(
+    db_path: str,
+    attempt_id: int,
+    student_id: str,
+    is_correct: bool,
+    error_type: str = "",
+    reason: str = "用户手动修正",
+) -> bool:
+    """Manually correct one attempt and replace its error label."""
+    db = sqlite3.connect(db_path)
+    try:
+        with db:
+            row = db.execute(
+                "SELECT id, session_id FROM attempts WHERE id = ? AND student_id = ?",
+                (attempt_id, student_id),
+            ).fetchone()
+            if not row:
+                return False
+
+            db.execute(
+                """UPDATE attempts
+                   SET is_correct = ?, reason = ?, method = 'manual_override'
+                   WHERE id = ? AND student_id = ?""",
+                (1 if is_correct else 0, reason, attempt_id, student_id),
+            )
+            db.execute(
+                "DELETE FROM attempt_error_labels WHERE attempt_id = ?",
+                (attempt_id,),
+            )
+            if not is_correct and error_type:
+                db.execute(
+                    """INSERT INTO attempt_error_labels
+                       (attempt_id, error_type, confidence, source, evidence, suggestion)
+                       VALUES (?, ?, ?, 'manual', ?, '')""",
+                    (attempt_id, error_type, 1.0, reason),
+                )
+
+            session_id = row[1]
+            if session_id:
+                counts = db.execute(
+                    """SELECT COUNT(*) AS total,
+                              SUM(CASE WHEN is_correct THEN 1 ELSE 0 END) AS correct
+                       FROM attempts
+                       WHERE session_id = ?""",
+                    (session_id,),
+                ).fetchone()
+                total = counts[0] or 0
+                correct = counts[1] or 0
+                accuracy = (correct / total) if total else 0.0
+                db.execute(
+                    """UPDATE learning_sessions
+                       SET attempt_count = ?, correct_count = ?, accuracy = ?,
+                           updated_at = datetime('now')
+                       WHERE id = ?""",
+                    (total, correct, accuracy, session_id),
+                )
+        return True
+    finally:
+        db.close()

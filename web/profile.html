@@ -3,14 +3,14 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>跳转到答题</title>
+<title>跳转到画像</title>
 <script>
-  const target = new URL('index.html' + window.location.search + '#quiz', window.location.href);
+  const target = new URL('index.html' + window.location.search + '#profile', window.location.href);
   window.location.replace(target.href);
 </script>
 </head>
 <body>
-  <p>答题入口已合并到 <a id="targetLink" href="index.html#quiz">index.html</a>。</p>
+  <p>画像入口已合并到 <a id="targetLink" href="index.html#profile">index.html</a>。</p>
   <script>
     document.getElementById('targetLink').href = target.href;
   </script>

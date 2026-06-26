@@ -25,6 +25,36 @@ def _connect() -> sqlite3.Connection:
     return sqlite3.connect(_db_path or ":memory:")
 
 
+# ── TOC 重建 ──
+
+def build_toc_from_db(db_path: str) -> list[dict]:
+    """从 SQLite sections 表重建目录结构，供 ExamGraph 使用。
+
+    Returns:
+        [{"chapter": "第1章", "sections": [{"id": "1.1", "title": "..."}, ...]}, ...]
+    """
+    conn = sqlite3.connect(db_path)
+    rows = conn.execute(
+        "SELECT id, chapter, title FROM sections ORDER BY page_start, id"
+    ).fetchall()
+    conn.close()
+
+    if not rows:
+        return []
+
+    chapters = {}
+    for section_id, chapter, title in rows:
+        ch = chapter or "正文"
+        if ch not in chapters:
+            chapters[ch] = []
+        chapters[ch].append({"id": section_id, "title": title or section_id})
+
+    return [
+        {"chapter": ch, "sections": secs}
+        for ch, secs in chapters.items()
+    ]
+
+
 # ── LLM 客户端 ──
 
 def create_llm_client(config: dict = None):
