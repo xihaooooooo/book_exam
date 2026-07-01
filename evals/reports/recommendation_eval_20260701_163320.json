@@ -1,0 +1,108 @@
+{
+  "eval_type": "recommendation",
+  "run_id": "20260701_163320",
+  "created_at": "2026-07-01T16:33:20",
+  "metrics": [
+    {
+      "name": "bkt_monotonic_pass",
+      "value": 1.0,
+      "threshold": 1.0,
+      "passed": true,
+      "detail": "0/0 个 BKT 方向检查通过"
+    },
+    {
+      "name": "weak_topic_hit_rate",
+      "value": 1.0,
+      "threshold": 0.8,
+      "passed": true,
+      "detail": "0/0 个薄弱章节进入 TopK"
+    },
+    {
+      "name": "mastered_retire_rate",
+      "value": 1.0,
+      "threshold": 0.8,
+      "passed": true,
+      "detail": "0/0 个低优先级章节排序低于薄弱章节"
+    },
+    {
+      "name": "recommendation_reason_rate",
+      "value": 1.0,
+      "threshold": 0.9,
+      "passed": true,
+      "detail": "0/0 个推荐条目包含原因"
+    },
+    {
+      "name": "error_to_type_match_rate",
+      "value": 1.0,
+      "threshold": 0.8,
+      "passed": true,
+      "detail": "0/0 个推荐题型匹配错因预期"
+    },
+    {
+      "name": "delta_mastery_valid_rate",
+      "value": 1.0,
+      "threshold": 1.0,
+      "passed": true,
+      "detail": "0/0 个 BKT delta 在合理范围内"
+    }
+  ],
+  "failures": [
+    {
+      "case_id": "rec_001",
+      "item_id": "rec_001",
+      "reason": "推荐回放执行异常",
+      "evidence": {
+        "error": "[WinError 5] 拒绝访问。: 'C:\\\\Users\\\\20659\\\\AppData\\\\Local\\\\Temp\\\\book_exam_eval_wpddmd54'",
+        "scenario": "连续答错的任务状态应进入推荐 Top3"
+      }
+    },
+    {
+      "case_id": "rec_002",
+      "item_id": "rec_002",
+      "reason": "推荐回放执行异常",
+      "evidence": {
+        "error": "[WinError 5] 拒绝访问。: 'C:\\\\Users\\\\20659\\\\AppData\\\\Local\\\\Temp\\\\book_exam_eval_8yes5kfy'",
+        "scenario": "全对序列的 BKT P(L) 应上升，已掌握 topic 应退场"
+      }
+    },
+    {
+      "case_id": "rec_003",
+      "item_id": "rec_003",
+      "reason": "推荐回放执行异常",
+      "evidence": {
+        "error": "[WinError 5] 拒绝访问。: 'C:\\\\Users\\\\20659\\\\AppData\\\\Local\\\\Temp\\\\book_exam_eval_we2czl_o'",
+        "scenario": "全错序列的 BKT P(L) 应下降并被优先推荐"
+      }
+    },
+    {
+      "case_id": "rec_004",
+      "item_id": "rec_004",
+      "reason": "推荐回放执行异常",
+      "evidence": {
+        "error": "[WinError 5] 拒绝访问。: 'C:\\\\Users\\\\20659\\\\AppData\\\\Local\\\\Temp\\\\book_exam_eval_1xor39zg'",
+        "scenario": "主要错因为记忆缺失时，推荐题型应偏 choice/fill_blank"
+      }
+    },
+    {
+      "case_id": "rec_005",
+      "item_id": "rec_005",
+      "reason": "推荐回放执行异常",
+      "evidence": {
+        "error": "[WinError 5] 拒绝访问。: 'C:\\\\Users\\\\20659\\\\AppData\\\\Local\\\\Temp\\\\book_exam_eval_gpaxeszm'",
+        "scenario": "样本不足但低掌握的知识点应保留探索机会"
+      }
+    }
+  ],
+  "summary": "共回放 0/5 个推荐样本，6/6 个指标通过，失败项 5 条。",
+  "metadata": {
+    "cases_file": "D:\\trae\\book_exam\\evals\\cases\\recommendation_cases.json",
+    "case_id": "",
+    "limit": null,
+    "target_count": 8,
+    "total_cases": 5,
+    "completed_cases": 0,
+    "rank_strategy": "mean",
+    "temp_db_policy": "TemporaryDirectory; never writes cache/attempts.db",
+    "top_items": {}
+  }
+}

@@ -17,6 +17,7 @@ def strategy_router(state: AgentState) -> dict:
     focus = state.get("focus", "")
     target_count = state.get("target_count", 0)
     allowed_types = state.get("allowed_types", "")
+    allowed_difficulty = state.get("allowed_difficulty", "")
     db_path = state.get("db_path", "cache/sections.db")
     practice_plan = None
 
@@ -165,6 +166,7 @@ def strategy_router(state: AgentState) -> dict:
         "focus": focus,
         "target_count": target_count,
         "allowed_types": allowed_types,
+        "allowed_difficulty": allowed_difficulty,
         "practice_plan": practice_plan,
     }
 

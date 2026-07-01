@@ -1,0 +1,129 @@
+{
+  "eval_type": "judge",
+  "run_id": "20260701_163320",
+  "created_at": "2026-07-01T16:33:20",
+  "metrics": [
+    {
+      "name": "objective_accuracy",
+      "value": 1.0,
+      "threshold": 0.98,
+      "passed": true,
+      "detail": "8/8 道客观题判定与 golden 一致"
+    },
+    {
+      "name": "subjective_agreement",
+      "value": 1.0,
+      "threshold": 0.8,
+      "passed": true,
+      "detail": "7/7 道主观题判定与 golden 一致"
+    },
+    {
+      "name": "false_positive_rate",
+      "value": 0.0,
+      "threshold": 0.05,
+      "passed": true,
+      "detail": "0/7 道实际错误样本被判为正确"
+    },
+    {
+      "name": "false_negative_rate",
+      "value": 0.0,
+      "threshold": 0.05,
+      "passed": true,
+      "detail": "0/8 道实际正确样本被判为错误"
+    },
+    {
+      "name": "error_type_valid_rate",
+      "value": 0.8571428571428571,
+      "threshold": 0.95,
+      "passed": false,
+      "detail": "6/7 道错误样本产出合法错因"
+    },
+    {
+      "name": "diagnosis_completeness",
+      "value": 0.8571428571428571,
+      "threshold": 0.8,
+      "passed": true,
+      "detail": "6/7 道错误样本含 evidence 和 suggestion"
+    },
+    {
+      "name": "fallback_pass_rate",
+      "value": 1.0,
+      "threshold": 1.0,
+      "passed": true,
+      "detail": "LLM 未配置时 JudgeGraph 能稳定返回结果"
+    }
+  ],
+  "failures": [
+    {
+      "case_id": "judge_015",
+      "item_id": "judge_015",
+      "reason": "错误样本缺少合法错因类型",
+      "evidence": {
+        "question_type": "choice",
+        "expected_correct": false,
+        "predicted_correct": false,
+        "expected_error_type": "memory_gap",
+        "predicted_error_type": "",
+        "method": "rule",
+        "reason": "未作答",
+        "stem": "空答案边界：以下哪个是信号量释放函数？",
+        "student_answer": "",
+        "correct_answer": "A",
+        "error_evidence": "",
+        "error_suggestion": "",
+        "legal_error_types": [
+          "concept_confusion",
+          "memory_gap",
+          "reasoning_error",
+          "misread_question",
+          "careless",
+          "transfer_failure"
+        ]
+      }
+    },
+    {
+      "case_id": "judge_015",
+      "item_id": "judge_015",
+      "reason": "错误样本诊断不完整",
+      "evidence": {
+        "question_type": "choice",
+        "expected_correct": false,
+        "predicted_correct": false,
+        "expected_error_type": "memory_gap",
+        "predicted_error_type": "",
+        "method": "rule",
+        "reason": "未作答",
+        "stem": "空答案边界：以下哪个是信号量释放函数？",
+        "student_answer": "",
+        "correct_answer": "A",
+        "error_evidence": "",
+        "error_suggestion": ""
+      }
+    }
+  ],
+  "summary": "共评测 15 道判题样本，6/7 个指标通过，失败项 2 条。",
+  "metadata": {
+    "cases_file": "D:\\trae\\book_exam\\evals\\cases\\judge_cases.json",
+    "case_id": "",
+    "limit": null,
+    "total_cases": 15,
+    "llm_configured": true,
+    "objective_cases": 8,
+    "subjective_cases": 7,
+    "confusion_matrix": {
+      "true_positive": 8,
+      "false_positive": 0,
+      "true_negative": 7,
+      "false_negative": 0
+    },
+    "llm": {
+      "enabled": true,
+      "provider": "deepseek",
+      "model": "deepseek-v4-flash",
+      "model_source": "default",
+      "api_key_env": "DEEPSEEK_API_KEY",
+      "api_key_present": true,
+      "base_url": "https://api.deepseek.com"
+    }
+  }
+}

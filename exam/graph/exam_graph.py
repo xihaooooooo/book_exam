@@ -35,6 +35,7 @@ class ExamGraph:
 
     def propagate(self, db_path: str = None, toc: list[dict] = None,
                   focus: str = "", target_count: int = 0, allowed_types: str = "",
+                  allowed_difficulty: str = "",
                   analysis_report_path: str = "", mode: str = "exam",
                   student_id: str = ""):
         """运行完整流程。"""
@@ -53,7 +54,7 @@ class ExamGraph:
         workflow = graph_setup.setup_graph()
         graph = workflow.compile()
 
-        initial_state = self._create_initial_state(toc, focus, target_count, allowed_types, analysis_report, mode, db_path, student_id)
+        initial_state = self._create_initial_state(toc, focus, target_count, allowed_types, allowed_difficulty, analysis_report, mode, db_path, student_id)
 
         print(f"ExamGraph 开始运行, 共 {sum(len(ch.get('sections', [])) for ch in (toc or []))} 节")
         if mode != "exam":
@@ -77,6 +78,7 @@ class ExamGraph:
 
     def _create_initial_state(self, toc: list[dict], focus: str = "",
                                target_count: int = 0, allowed_types: str = "",
+                               allowed_difficulty: str = "",
                                analysis_report: dict = None, mode: str = "exam",
                                db_path: str = "", student_id: str = "") -> dict:
         """创建初始 state"""
@@ -90,6 +92,7 @@ class ExamGraph:
             "focus": focus,
             "target_count": target_count,
             "allowed_types": allowed_types,
+            "allowed_difficulty": allowed_difficulty,
             "analysis_report": analysis_report,
             "current_task": None,
             "knowledge_point": "",

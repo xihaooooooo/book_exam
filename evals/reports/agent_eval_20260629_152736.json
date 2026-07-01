@@ -1,0 +1,419 @@
+{
+  "eval_type": "all",
+  "run_id": "20260629_152736",
+  "created_at": "2026-06-29T15:27:36",
+  "metrics": [
+    {
+      "name": "overall_score",
+      "value": 0.9523809523809524,
+      "threshold": 0.8,
+      "passed": true,
+      "detail": "三类评测通过指标比例的平均值"
+    },
+    {
+      "name": "generation_score",
+      "value": 1.0,
+      "threshold": 0.8,
+      "passed": true,
+      "detail": "出题质量评测通过指标比例"
+    },
+    {
+      "name": "judge_score",
+      "value": 0.8571428571428571,
+      "threshold": 0.8,
+      "passed": true,
+      "detail": "判题一致性评测通过指标比例"
+    },
+    {
+      "name": "recommendation_score",
+      "value": 1.0,
+      "threshold": 0.8,
+      "passed": true,
+      "detail": "推荐策略评测通过指标比例"
+    }
+  ],
+  "failures": [
+    {
+      "case_id": "judge:judge_015",
+      "item_id": "judge_015",
+      "reason": "错误样本缺少合法错因类型",
+      "evidence": {
+        "eval_type": "judge",
+        "question_type": "choice",
+        "expected_correct": false,
+        "predicted_correct": false,
+        "expected_error_type": "memory_gap",
+        "predicted_error_type": "",
+        "method": "rule",
+        "reason": "未作答",
+        "stem": "空答案边界：以下哪个是信号量释放函数？",
+        "student_answer": "",
+        "correct_answer": "A",
+        "error_evidence": "",
+        "error_suggestion": "",
+        "legal_error_types": [
+          "concept_confusion",
+          "memory_gap",
+          "reasoning_error",
+          "misread_question",
+          "careless",
+          "transfer_failure"
+        ]
+      }
+    },
+    {
+      "case_id": "judge:judge_015",
+      "item_id": "judge_015",
+      "reason": "错误样本诊断不完整",
+      "evidence": {
+        "eval_type": "judge",
+        "question_type": "choice",
+        "expected_correct": false,
+        "predicted_correct": false,
+        "expected_error_type": "memory_gap",
+        "predicted_error_type": "",
+        "method": "rule",
+        "reason": "未作答",
+        "stem": "空答案边界：以下哪个是信号量释放函数？",
+        "student_answer": "",
+        "correct_answer": "A",
+        "error_evidence": "",
+        "error_suggestion": ""
+      }
+    }
+  ],
+  "summary": "总分 95%，出题 100%，判题 86%，推荐 100%；失败项 2 条，回退指标 0 个。",
+  "metadata": {
+    "cases_dir": "D:\\trae\\book_exam\\evals\\cases",
+    "reports_dir": "D:\\trae\\book_exam\\evals\\reports",
+    "questions_file": "",
+    "generation_limit": 5,
+    "judge_limit": null,
+    "recommendation_limit": null,
+    "recommendation_target_count": 8,
+    "judge_llm_configured": true,
+    "judge_llm": {
+      "enabled": true,
+      "provider": "deepseek",
+      "model": "deepseek-v4-flash",
+      "api_key_env": "DEEPSEEK_API_KEY",
+      "api_key_present": true,
+      "base_url": "https://api.deepseek.com"
+    },
+    "metric_snapshot": {
+      "generation.format_pass_rate": 1.0,
+      "generation.type_adherence_rate": 1.0,
+      "generation.difficulty_adherence_rate": 1.0,
+      "generation.answer_presence_rate": 1.0,
+      "generation.explanation_presence_rate": 1.0,
+      "generation.duplicate_rate": 0.0,
+      "judge.objective_accuracy": 1.0,
+      "judge.subjective_agreement": 1.0,
+      "judge.false_positive_rate": 0.0,
+      "judge.false_negative_rate": 0.0,
+      "judge.error_type_valid_rate": 0.8571428571428571,
+      "judge.diagnosis_completeness": 0.8571428571428571,
+      "judge.fallback_pass_rate": 1.0,
+      "recommendation.bkt_monotonic_pass": 1.0,
+      "recommendation.weak_topic_hit_rate": 1.0,
+      "recommendation.mastered_retire_rate": 1.0,
+      "recommendation.recommendation_reason_rate": 1.0,
+      "recommendation.error_to_type_match_rate": 1.0,
+      "recommendation.delta_mastery_valid_rate": 1.0
+    },
+    "metric_diffs": [
+      {
+        "name": "generation.answer_presence_rate",
+        "current": 1.0,
+        "previous": 1.0,
+        "delta": 0.0,
+        "status": "stable"
+      },
+      {
+        "name": "generation.difficulty_adherence_rate",
+        "current": 1.0,
+        "previous": 1.0,
+        "delta": 0.0,
+        "status": "stable"
+      },
+      {
+        "name": "generation.duplicate_rate",
+        "current": 0.0,
+        "previous": 0.0,
+        "delta": 0.0,
+        "status": "stable"
+      },
+      {
+        "name": "generation.explanation_presence_rate",
+        "current": 1.0,
+        "previous": 1.0,
+        "delta": 0.0,
+        "status": "stable"
+      },
+      {
+        "name": "generation.format_pass_rate",
+        "current": 1.0,
+        "previous": 1.0,
+        "delta": 0.0,
+        "status": "stable"
+      },
+      {
+        "name": "generation.type_adherence_rate",
+        "current": 1.0,
+        "previous": 1.0,
+        "delta": 0.0,
+        "status": "stable"
+      },
+      {
+        "name": "judge.diagnosis_completeness",
+        "current": 0.8571428571428571,
+        "previous": 0.0,
+        "delta": 0.8571428571428571,
+        "status": "improved"
+      },
+      {
+        "name": "judge.error_type_valid_rate",
+        "current": 0.8571428571428571,
+        "previous": 0.0,
+        "delta": 0.8571428571428571,
+        "status": "improved"
+      },
+      {
+        "name": "judge.fallback_pass_rate",
+        "current": 1.0,
+        "previous": 1.0,
+        "delta": 0.0,
+        "status": "stable"
+      },
+      {
+        "name": "judge.false_negative_rate",
+        "current": 0.0,
+        "previous": 0.25,
+        "delta": -0.25,
+        "status": "improved"
+      },
+      {
+        "name": "judge.false_positive_rate",
+        "current": 0.0,
+        "previous": 0.0,
+        "delta": 0.0,
+        "status": "stable"
+      },
+      {
+        "name": "judge.objective_accuracy",
+        "current": 1.0,
+        "previous": 1.0,
+        "delta": 0.0,
+        "status": "stable"
+      },
+      {
+        "name": "judge.subjective_agreement",
+        "current": 1.0,
+        "previous": 0.7142857142857143,
+        "delta": 0.2857142857142857,
+        "status": "improved"
+      },
+      {
+        "name": "recommendation.bkt_monotonic_pass",
+        "current": 1.0,
+        "previous": 1.0,
+        "delta": 0.0,
+        "status": "stable"
+      },
+      {
+        "name": "recommendation.delta_mastery_valid_rate",
+        "current": 1.0,
+        "previous": 1.0,
+        "delta": 0.0,
+        "status": "stable"
+      },
+      {
+        "name": "recommendation.error_to_type_match_rate",
+        "current": 1.0,
+        "previous": 1.0,
+        "delta": 0.0,
+        "status": "stable"
+      },
+      {
+        "name": "recommendation.mastered_retire_rate",
+        "current": 1.0,
+        "previous": 1.0,
+        "delta": 0.0,
+        "status": "stable"
+      },
+      {
+        "name": "recommendation.recommendation_reason_rate",
+        "current": 1.0,
+        "previous": 1.0,
+        "delta": 0.0,
+        "status": "stable"
+      },
+      {
+        "name": "recommendation.weak_topic_hit_rate",
+        "current": 1.0,
+        "previous": 1.0,
+        "delta": 0.0,
+        "status": "stable"
+      }
+    ],
+    "sections": {
+      "generation": {
+        "summary": "共评测 5 道题，6/6 个指标通过，失败项 0 条。",
+        "json_path": "D:\\trae\\book_exam\\evals\\reports\\generation_eval_20260629_152730.json",
+        "md_path": "D:\\trae\\book_exam\\evals\\reports\\generation_eval_20260629_152730.md",
+        "metrics": [
+          {
+            "name": "format_pass_rate",
+            "value": 1.0,
+            "threshold": 0.95,
+            "passed": true,
+            "detail": "5/5，必填字段和选择题选项完整"
+          },
+          {
+            "name": "type_adherence_rate",
+            "value": 1.0,
+            "threshold": 0.9,
+            "passed": true,
+            "detail": "5/5，题型满足 case 约束或合法题型集合"
+          },
+          {
+            "name": "difficulty_adherence_rate",
+            "value": 1.0,
+            "threshold": 0.9,
+            "passed": true,
+            "detail": "5/5，难度满足 case 约束或合法难度集合"
+          },
+          {
+            "name": "answer_presence_rate",
+            "value": 1.0,
+            "threshold": 0.98,
+            "passed": true,
+            "detail": "5/5，correct_answer 非空"
+          },
+          {
+            "name": "explanation_presence_rate",
+            "value": 1.0,
+            "threshold": 0.9,
+            "passed": true,
+            "detail": "5/5，explanation 非空"
+          },
+          {
+            "name": "duplicate_rate",
+            "value": 0.0,
+            "threshold": 0.15,
+            "passed": true,
+            "detail": "0/5 道题被判定为重复或高度相似"
+          }
+        ],
+        "failure_count": 0
+      },
+      "judge": {
+        "summary": "共评测 15 道判题样本，6/7 个指标通过，失败项 2 条。",
+        "json_path": "D:\\trae\\book_exam\\evals\\reports\\judge_eval_20260629_152736.json",
+        "md_path": "D:\\trae\\book_exam\\evals\\reports\\judge_eval_20260629_152736.md",
+        "metrics": [
+          {
+            "name": "objective_accuracy",
+            "value": 1.0,
+            "threshold": 0.98,
+            "passed": true,
+            "detail": "8/8 道客观题判定与 golden 一致"
+          },
+          {
+            "name": "subjective_agreement",
+            "value": 1.0,
+            "threshold": 0.8,
+            "passed": true,
+            "detail": "7/7 道主观题判定与 golden 一致"
+          },
+          {
+            "name": "false_positive_rate",
+            "value": 0.0,
+            "threshold": 0.05,
+            "passed": true,
+            "detail": "0/7 道实际错误样本被判为正确"
+          },
+          {
+            "name": "false_negative_rate",
+            "value": 0.0,
+            "threshold": 0.05,
+            "passed": true,
+            "detail": "0/8 道实际正确样本被判为错误"
+          },
+          {
+            "name": "error_type_valid_rate",
+            "value": 0.8571428571428571,
+            "threshold": 0.95,
+            "passed": false,
+            "detail": "6/7 道错误样本产出合法错因"
+          },
+          {
+            "name": "diagnosis_completeness",
+            "value": 0.8571428571428571,
+            "threshold": 0.8,
+            "passed": true,
+            "detail": "6/7 道错误样本含 evidence 和 suggestion"
+          },
+          {
+            "name": "fallback_pass_rate",
+            "value": 1.0,
+            "threshold": 1.0,
+            "passed": true,
+            "detail": "LLM 未配置时 JudgeGraph 能稳定返回结果"
+          }
+        ],
+        "failure_count": 2
+      },
+      "recommendation": {
+        "summary": "共回放 5/5 个推荐样本，6/6 个指标通过，失败项 0 条。",
+        "json_path": "D:\\trae\\book_exam\\evals\\reports\\recommendation_eval_20260629_152736.json",
+        "md_path": "D:\\trae\\book_exam\\evals\\reports\\recommendation_eval_20260629_152736.md",
+        "metrics": [
+          {
+            "name": "bkt_monotonic_pass",
+            "value": 1.0,
+            "threshold": 1.0,
+            "passed": true,
+            "detail": "2/2 个 BKT 方向检查通过"
+          },
+          {
+            "name": "weak_topic_hit_rate",
+            "value": 1.0,
+            "threshold": 0.8,
+            "passed": true,
+            "detail": "5/5 个薄弱章节进入 TopK"
+          },
+          {
+            "name": "mastered_retire_rate",
+            "value": 1.0,
+            "threshold": 0.8,
+            "passed": true,
+            "detail": "5/5 个低优先级章节排序低于薄弱章节"
+          },
+          {
+            "name": "recommendation_reason_rate",
+            "value": 1.0,
+            "threshold": 0.9,
+            "passed": true,
+            "detail": "10/10 个推荐条目包含原因"
+          },
+          {
+            "name": "error_to_type_match_rate",
+            "value": 1.0,
+            "threshold": 0.8,
+            "passed": true,
+            "detail": "5/5 个推荐题型匹配错因预期"
+          },
+          {
+            "name": "delta_mastery_valid_rate",
+            "value": 1.0,
+            "threshold": 1.0,
+            "passed": true,
+            "detail": "10/10 个 BKT delta 在合理范围内"
+          }
+        ],
+        "failure_count": 0
+      }
+    }
+  }
+}

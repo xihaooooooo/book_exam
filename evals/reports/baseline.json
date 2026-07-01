@@ -1,0 +1,47 @@
+{
+  "baseline_id": "offline_agent_eval_current",
+  "status": "current",
+  "run_id": "20260629_151029",
+  "set_at": "2026-06-29",
+  "description": "当前离线 Agent 评测基线，用于 Prompt、模型、判题规则或推荐策略改动后的回归对比。",
+  "command": "python scripts/run_all_evals.py --generation-limit 5",
+  "environment": {
+    "python_env": "conda:D:\\conda\\envs\\book_exam",
+    "mode": "offline",
+    "langsmith_tracing": false
+  },
+  "reports": {
+    "agent_json": "evals/reports/agent_eval_20260629_151029.json",
+    "agent_markdown": "evals/reports/agent_eval_20260629_151029.md",
+    "generation_json": "evals/reports/generation_eval_20260629_151029.json",
+    "generation_markdown": "evals/reports/generation_eval_20260629_151029.md",
+    "judge_json": "evals/reports/judge_eval_20260629_151029.json",
+    "judge_markdown": "evals/reports/judge_eval_20260629_151029.md",
+    "recommendation_json": "evals/reports/recommendation_eval_20260629_151029.json",
+    "recommendation_markdown": "evals/reports/recommendation_eval_20260629_151029.md"
+  },
+  "summary": "总分 90%，出题 100%，判题 71%，推荐 100%；失败项 2 条，回退指标 0 个。",
+  "metrics": {
+    "overall_score": 0.9047619047619048,
+    "generation_score": 1.0,
+    "judge_score": 0.7142857142857143,
+    "recommendation_score": 1.0
+  },
+  "remaining_failures": [
+    {
+      "case_id": "judge:judge_008",
+      "reason": "false negative：实际正确但判为错误",
+      "note": "无 LLM 离线模式下，主观题语义等价无法由规则稳定识别。"
+    },
+    {
+      "case_id": "judge:judge_013",
+      "reason": "false negative：实际正确但判为错误",
+      "note": "无 LLM 离线模式下，综合题语义等价无法由规则稳定识别。"
+    }
+  ],
+  "accepted_limitations": [
+    "当前基线不接入 LLM-as-judge。",
+    "当前基线不使用真实学生数据。",
+    "当前基线不接入 CI，先作为本地回归对比锚点。"
+  ]
+}

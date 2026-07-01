@@ -1,0 +1,112 @@
+{
+  "eval_type": "judge",
+  "run_id": "20260629_151029",
+  "created_at": "2026-06-29T15:10:29",
+  "metrics": [
+    {
+      "name": "objective_accuracy",
+      "value": 1.0,
+      "threshold": 0.98,
+      "passed": true,
+      "detail": "8/8 道客观题判定与 golden 一致"
+    },
+    {
+      "name": "subjective_agreement",
+      "value": 0.7142857142857143,
+      "threshold": 0.8,
+      "passed": false,
+      "detail": "5/7 道主观题判定与 golden 一致"
+    },
+    {
+      "name": "false_positive_rate",
+      "value": 0.0,
+      "threshold": 0.05,
+      "passed": true,
+      "detail": "0/7 道实际错误样本被判为正确"
+    },
+    {
+      "name": "false_negative_rate",
+      "value": 0.25,
+      "threshold": 0.05,
+      "passed": false,
+      "detail": "2/8 道实际正确样本被判为错误"
+    },
+    {
+      "name": "error_type_valid_rate",
+      "value": 0.0,
+      "threshold": null,
+      "passed": true,
+      "detail": "0/7 道错误样本产出合法错因；LLM 未配置，本轮仅记录不扣分"
+    },
+    {
+      "name": "diagnosis_completeness",
+      "value": 0.0,
+      "threshold": null,
+      "passed": true,
+      "detail": "0/7 道错误样本含 evidence 和 suggestion；LLM 未配置，本轮仅记录不扣分"
+    },
+    {
+      "name": "fallback_pass_rate",
+      "value": 1.0,
+      "threshold": 1.0,
+      "passed": true,
+      "detail": "LLM 未配置时 JudgeGraph 能稳定返回结果"
+    }
+  ],
+  "failures": [
+    {
+      "case_id": "judge_008",
+      "item_id": "judge_008",
+      "reason": "false negative：实际正确但判为错误",
+      "evidence": {
+        "question_type": "short_answer",
+        "expected_correct": true,
+        "predicted_correct": false,
+        "expected_error_type": null,
+        "predicted_error_type": "",
+        "method": "fallback",
+        "reason": "降级（LLM 未配置）",
+        "stem": "简述任务优先级反转产生的条件。",
+        "student_answer": "低优先级任务占着高优先级任务要用的资源，中优先级任务又抢占低优先级任务运行，所以高优先级任务一直等。",
+        "correct_answer": "低优先级任务持有高优先级任务需要的互斥资源，同时中优先级任务抢占低优先级任务，导致高优先级任务被间接延迟。",
+        "error_evidence": "",
+        "error_suggestion": ""
+      }
+    },
+    {
+      "case_id": "judge_013",
+      "item_id": "judge_013",
+      "reason": "false negative：实际正确但判为错误",
+      "evidence": {
+        "question_type": "comprehensive",
+        "expected_correct": true,
+        "predicted_correct": false,
+        "expected_error_type": null,
+        "predicted_error_type": "",
+        "method": "fallback",
+        "reason": "降级（LLM 未配置）",
+        "stem": "某低优先级任务持有互斥资源，高优先级任务等待该资源，中优先级任务持续运行。分析现象并给出解决思路。",
+        "student_answer": "这是优先级反转。可以用互斥型信号量，让低优先级任务临时提升，释放资源后恢复。",
+        "correct_answer": "这是优先级反转。可使用互斥型信号量或优先级继承/提升机制，使持有资源的低优先级任务临时提升优先级，尽快释放资源。",
+        "error_evidence": "",
+        "error_suggestion": ""
+      }
+    }
+  ],
+  "summary": "共评测 15 道判题样本，5/7 个指标通过，失败项 2 条。",
+  "metadata": {
+    "cases_file": "D:\\trae\\book_exam\\evals\\cases\\judge_cases.json",
+    "case_id": "",
+    "limit": null,
+    "total_cases": 15,
+    "llm_configured": false,
+    "objective_cases": 8,
+    "subjective_cases": 7,
+    "confusion_matrix": {
+      "true_positive": 6,
+      "false_positive": 0,
+      "true_negative": 7,
+      "false_negative": 2
+    }
+  }
+}

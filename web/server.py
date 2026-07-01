@@ -194,6 +194,46 @@ def _list_analysis_reports() -> list[dict]:
     return reports
 
 
+def _list_exams() -> list[dict]:
+    """列出 output/ 下所有历史试卷。"""
+    pattern = os.path.join(os.path.dirname(__file__), "..", "output", "questions_*.json")
+    exams = []
+    for f in sorted(glob.glob(pattern), reverse=True):
+        fname = os.path.basename(f)
+        try:
+            with open(f, "r", encoding="utf-8") as fh:
+                qs = json.load(fh)
+            count = len(qs) if isinstance(qs, list) else 0
+            # extract timestamp from filename: questions_YYYYMMDD_HHMMSS.json
+            ts = fname.replace("questions_", "").replace(".json", "")
+            exams.append({
+                "filename": fname,
+                "timestamp": ts,
+                "count": count,
+            })
+        except Exception:
+            exams.append({"filename": fname, "timestamp": "", "count": 0})
+    return exams
+
+
+def _serve_exam_detail(self, filename: str):
+    """返回指定试卷文件的完整题目列表（含答案）。"""
+    # 防止路径穿越
+    if ".." in filename or "/" in filename or "\\" in filename:
+        self._serve_json({"error": "非法文件名"}, status=400)
+        return
+    fpath = os.path.join(os.path.dirname(__file__), "..", "output", filename)
+    if not os.path.isfile(fpath):
+        self._serve_json({"error": "试卷不存在"}, status=404)
+        return
+    try:
+        with open(fpath, "r", encoding="utf-8") as fh:
+            questions = json.load(fh)
+        self._serve_json(questions)
+    except Exception:
+        self._serve_json({"error": "读取失败"}, status=500)
+
+
 def get_questions():
     loaded = _load_latest_output()
     if loaded:
@@ -223,6 +263,13 @@ class QuizHandler(SimpleHTTPRequestHandler):
             return
         if parsed.path == "/api/analysis-reports":
             self._serve_json(_list_analysis_reports())
+            return
+        if parsed.path == "/api/exams":
+            self._serve_json(_list_exams())
+            return
+        if parsed.path.startswith("/api/exams/"):
+            filename = parsed.path[len("/api/exams/"):]
+            _serve_exam_detail(self, filename)
             return
         super().do_GET()
 
@@ -387,6 +434,7 @@ class QuizHandler(SimpleHTTPRequestHandler):
         focus = data.get("focus", "").strip()
         target_count = data.get("count", 0)
         allowed_types = data.get("types", "").strip()
+        allowed_difficulty = data.get("difficulty", "").strip()
         analysis_report = data.get("analysis_report", "").strip()
 
         config = DEFAULT_CONFIG.copy()
@@ -412,6 +460,7 @@ class QuizHandler(SimpleHTTPRequestHandler):
                 db_path=db_path, toc=toc,
                 focus=focus, target_count=target_count,
                 allowed_types=allowed_types,
+                allowed_difficulty=allowed_difficulty,
                 analysis_report_path=analysis_report,
                 mode=mode, student_id=student_id,
             )

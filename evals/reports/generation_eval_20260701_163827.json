@@ -1,0 +1,250 @@
+{
+  "eval_type": "generation",
+  "run_id": "20260701_163827",
+  "created_at": "2026-07-01T16:38:27",
+  "metrics": [
+    {
+      "name": "format_pass_rate",
+      "value": 1.0,
+      "threshold": 0.95,
+      "passed": true,
+      "detail": "5/5，必填字段和选择题选项完整"
+    },
+    {
+      "name": "type_adherence_rate",
+      "value": 1.0,
+      "threshold": 0.9,
+      "passed": true,
+      "detail": "5/5，题型满足 case 约束或合法题型集合"
+    },
+    {
+      "name": "difficulty_adherence_rate",
+      "value": 0.8,
+      "threshold": 0.9,
+      "passed": false,
+      "detail": "4/5，难度满足 case 约束或合法难度集合"
+    },
+    {
+      "name": "answer_presence_rate",
+      "value": 1.0,
+      "threshold": 0.98,
+      "passed": true,
+      "detail": "5/5，correct_answer 非空"
+    },
+    {
+      "name": "explanation_presence_rate",
+      "value": 1.0,
+      "threshold": 0.9,
+      "passed": true,
+      "detail": "5/5，explanation 非空"
+    },
+    {
+      "name": "duplicate_rate",
+      "value": 0.0,
+      "threshold": 0.15,
+      "passed": true,
+      "detail": "0/5 道题被判定为重复或高度相似"
+    },
+    {
+      "name": "llm_review_pass_rate",
+      "value": 0.6,
+      "threshold": 0.8,
+      "passed": false,
+      "detail": "3/5，LLM 专家审稿综合通过率"
+    },
+    {
+      "name": "llm_review_average_score",
+      "value": 0.8399999999999999,
+      "threshold": 0.75,
+      "passed": true,
+      "detail": "5 道题 LLM 专家综合评分均值"
+    },
+    {
+      "name": "relevance_pass_rate",
+      "value": 0.8,
+      "threshold": 0.8,
+      "passed": true,
+      "detail": "4/5，相关性评分 >= 0.70"
+    },
+    {
+      "name": "correctness_pass_rate",
+      "value": 1.0,
+      "threshold": 0.8,
+      "passed": true,
+      "detail": "5/5，正确性评分 >= 0.70"
+    },
+    {
+      "name": "difficulty_fit_pass_rate",
+      "value": 0.8,
+      "threshold": 0.8,
+      "passed": true,
+      "detail": "4/5，难度匹配评分 >= 0.70"
+    }
+  ],
+  "failures": [
+    {
+      "case_id": "gen_001",
+      "item_id": "q003",
+      "reason": "难度不在允许集合内",
+      "evidence": {
+        "difficulty": "hard",
+        "allowed_difficulty": [
+          "easy",
+          "medium"
+        ],
+        "source": "1.2.3"
+      }
+    },
+    {
+      "case_id": "gen_001",
+      "item_id": "q002",
+      "reason": "LLM 专家审稿未通过",
+      "evidence": {
+        "overall": 0.8,
+        "verdict": "fail",
+        "issues": [
+          "题目内容与章节核心主题（实时操作系统需要满足的条件）关联不紧密，未体现expected_keywords（实时、响应、可预测、确定性）。"
+        ],
+        "suggestion": "建议将题目修改为与章节核心条件直接相关的内容，例如任务切换时间与任务数无关、中断延迟可预知等。示例：'在实时操作系统中，为保证系统可预测性，任务的切换时间应与____无关。' 答案为'系统中的任务数'。",
+        "stem": "在不可剥夺型内核中，每个任务必须___CPU的使用权。"
+      }
+    },
+    {
+      "case_id": "gen_001",
+      "item_id": "q003",
+      "reason": "LLM 专家审稿未通过",
+      "evidence": {
+        "overall": 0.5,
+        "verdict": "fail",
+        "issues": [
+          "题目标注难度为 hard，但章节允许的难度仅为 easy 和 medium，不符合要求",
+          "题目要求从三个方面分析，章节内容对代价和系统开销的阐述较简略，可能超出材料直接覆盖范围"
+        ],
+        "suggestion": "将难度改为 medium，或简化题目为直接分析可剥夺型内核如何保障高优先级任务响应时间，避免要求系统开销等超出章节详述的内容",
+        "stem": "在可剥夺型内核中，高优先级任务的响应时间是如何得到保障的？与不可剥夺型内核相比，这种保障有什么代价？请从调度机制、响应时间可预测性和系统开销三个方面进行分析。"
+      }
+    }
+  ],
+  "summary": "共评测 5 道题，9/11 个指标通过，失败项 3 条。",
+  "metadata": {
+    "eval_mode": "live_llm_generation",
+    "generation_source": "live_exam_graph",
+    "cases_file": "D:\\trae\\book_exam\\evals\\cases\\generation_cases.json",
+    "questions_file": "D:\\trae\\book_exam\\evals\\generated\\questions_live_20260701_163413.json",
+    "case_id": "",
+    "limit": 5,
+    "total_questions": 5,
+    "matched_case_questions": 5,
+    "duplicate_threshold": 0.9,
+    "generated_output_dir": "D:\\trae\\book_exam\\evals\\generated",
+    "max_questions": 5,
+    "llm": {
+      "enabled": true,
+      "provider": "deepseek",
+      "model": "deepseek-v4-flash",
+      "model_source": "default",
+      "api_key_env": "DEEPSEEK_API_KEY",
+      "api_key_present": true,
+      "base_url": "https://api.deepseek.com"
+    },
+    "llm_review": {
+      "enabled": true,
+      "reviewer_llm": {
+        "enabled": true,
+        "provider": "deepseek",
+        "model": "deepseek-v4-flash",
+        "model_source": "default",
+        "api_key_env": "DEEPSEEK_API_KEY",
+        "api_key_present": true,
+        "base_url": "https://api.deepseek.com"
+      },
+      "review_pass_threshold": 0.75,
+      "dimension_pass_threshold": 0.7,
+      "total_reviewed": 5,
+      "passed": 3,
+      "average_score": 0.8399999999999999
+    },
+    "llm_review_results": [
+      {
+        "case_id": "gen_001",
+        "item_id": "q001",
+        "relevance": 0.9,
+        "correctness": 1.0,
+        "clarity": 1.0,
+        "answer_quality": 1.0,
+        "explanation_quality": 1.0,
+        "difficulty_fit": 1.0,
+        "exam_value": 0.9,
+        "overall": 0.97,
+        "verdict": "pass",
+        "issues": [],
+        "suggestion": "无修改建议，题目质量优秀。"
+      },
+      {
+        "case_id": "gen_001",
+        "item_id": "q002",
+        "relevance": 0.5,
+        "correctness": 1.0,
+        "clarity": 1.0,
+        "answer_quality": 1.0,
+        "explanation_quality": 0.8,
+        "difficulty_fit": 1.0,
+        "exam_value": 0.7,
+        "overall": 0.8,
+        "verdict": "fail",
+        "issues": [
+          "题目内容与章节核心主题（实时操作系统需要满足的条件）关联不紧密，未体现expected_keywords（实时、响应、可预测、确定性）。"
+        ],
+        "suggestion": "建议将题目修改为与章节核心条件直接相关的内容，例如任务切换时间与任务数无关、中断延迟可预知等。示例：'在实时操作系统中，为保证系统可预测性，任务的切换时间应与____无关。' 答案为'系统中的任务数'。"
+      },
+      {
+        "case_id": "gen_001",
+        "item_id": "q003",
+        "relevance": 0.8,
+        "correctness": 1.0,
+        "clarity": 0.9,
+        "answer_quality": 0.9,
+        "explanation_quality": 0.9,
+        "difficulty_fit": 0.0,
+        "exam_value": 0.8,
+        "overall": 0.5,
+        "verdict": "fail",
+        "issues": [
+          "题目标注难度为 hard，但章节允许的难度仅为 easy 和 medium，不符合要求",
+          "题目要求从三个方面分析，章节内容对代价和系统开销的阐述较简略，可能超出材料直接覆盖范围"
+        ],
+        "suggestion": "将难度改为 medium，或简化题目为直接分析可剥夺型内核如何保障高优先级任务响应时间，避免要求系统开销等超出章节详述的内容"
+      },
+      {
+        "case_id": "gen_002",
+        "item_id": "q004",
+        "relevance": 1.0,
+        "correctness": 1.0,
+        "clarity": 1.0,
+        "answer_quality": 1.0,
+        "explanation_quality": 1.0,
+        "difficulty_fit": 1.0,
+        "exam_value": 0.9,
+        "overall": 0.95,
+        "verdict": "pass",
+        "issues": [],
+        "suggestion": "题目设计合理，无需修改。"
+      },
+      {
+        "case_id": "gen_002",
+        "item_id": "q005",
+        "relevance": 1.0,
+        "correctness": 1.0,
+        "clarity": 0.9,
+        "answer_quality": 1.0,
+        "explanation_quality": 1.0,
+        "difficulty_fit": 1.0,
+        "exam_value": 1.0,
+        "overall": 0.98,
+        "verdict": "pass",
+        "issues": [],
+        "suggestion": "无"
+      }
+    ]
+  }
+}

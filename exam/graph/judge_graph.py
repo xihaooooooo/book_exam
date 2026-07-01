@@ -159,7 +159,7 @@ class JudgeGraph:
                 ))
 
             else:  # fill_blank / 其他
-                ok = _normalize(given) == _normalize(correct)
+                ok = _answers_equal(given, correct)
                 ans["is_correct"] = ok
                 ans["reason"] = "答案匹配" if ok else f"正确答案为 {correct}"
                 ans["method"] = "rule"
@@ -203,6 +203,7 @@ def _build_judge_prompt(stem, correct, given, expl, options_str, qtype, difficul
         "\n判断学生答案是否正确。如果正确，error_type/confidence/evidence/suggestion 均设为 null。"
         f"如果错误，{ERROR_TYPE_PROMPT_DESC}\n"
         "并给出 confidence（诊断置信度 0-1）、evidence（一句话诊断证据）、suggestion（一句话改善建议）。"
+        "\n注意：LaTeX 公式中的空白字符差异不影响判定——$x=5$ 与 $x = 5$ 视为相同。"
     )
     return "\n".join(parts)
 
@@ -310,8 +311,20 @@ def _diagnose_error_llm(llm_client, stem, correct, given, expl, options_str, qty
 
 
 def _parse_judge_json(content: str) -> JudgeResult:
-    """从 LLM 输出中解析 JudgeResult，失败抛 ValueError。"""
+    """从 LLM 输出中解析 JudgeResult，失败抛 ValueError。
+
+    额外尝试修复常见 LLM JSON 畸形（如 \"is_correct\": , 缺值）。
+    """
+    import re as _re
     text = content.strip()
+
+    # ── 修复常见 LLM 畸形 ──
+    # 1) "is_correct": ,  → "is_correct": false,
+    text = _re.sub(r'"is_correct"\s*:\s*,', '"is_correct": false,', text)
+    # 2) "is_correct": }  → "is_correct": false}
+    text = _re.sub(r'"is_correct"\s*:\s*}', '"is_correct": false}', text)
+    # 3) 行尾缺逗号（常见）
+    text = _re.sub(r'(null|"[^"]*"|\d+\.?\d*)\s*\n\s*"', r'\1,\n  "', text)
 
     # 直接解析
     try:
@@ -325,6 +338,9 @@ def _parse_judge_json(content: str) -> JudgeResult:
             parts = text.split(marker, 1)
             if len(parts) > 1:
                 json_str = parts[1].split("```", 1)[0].strip()
+                # 对代码块内也做同样修复
+                json_str = _re.sub(r'"is_correct"\s*:\s*,', '"is_correct": false,', json_str)
+                json_str = _re.sub(r'"is_correct"\s*:\s*}', '"is_correct": false}', json_str)
                 try:
                     return JudgeResult(**json.loads(json_str, strict=False))
                 except (json.JSONDecodeError, Exception):
@@ -388,7 +404,7 @@ def _run_llm_batch(answers, llm_tasks, diagnosis_tasks, llm_client):
     """
     if llm_client is None:
         for i, given, correct, stem, expl, options_str, qtype, difficulty in llm_tasks:
-            answers[i]["is_correct"] = (given == correct)
+            answers[i]["is_correct"] = _answers_equal(given, correct)
             answers[i]["reason"] = "降级（LLM 未配置）"
             answers[i]["method"] = "fallback"
         # diagnosis_tasks: 无 LLM 则跳过诊断
@@ -417,12 +433,12 @@ def _run_llm_batch(answers, llm_tasks, diagnosis_tasks, llm_client):
                     answers[i]["method"] = "llm"
                     _fill_error_fields(answers[i], result)
                 except asyncio.TimeoutError:
-                    answers[i]["is_correct"] = (given == correct)
+                    answers[i]["is_correct"] = _answers_equal(given, correct)
                     answers[i]["reason"] = "降级（LLM 超时）"
                     answers[i]["method"] = "fallback"
                     logger.warning("LLM 判题超时: idx=%d", i)
                 except Exception as e:
-                    answers[i]["is_correct"] = (given == correct)
+                    answers[i]["is_correct"] = _answers_equal(given, correct)
                     answers[i]["reason"] = "降级（LLM 异常）"
                     answers[i]["method"] = "fallback"
                     logger.warning("LLM 判题异常: idx=%d, err=%s", i, e)
@@ -476,7 +492,7 @@ def _run_llm_batch(answers, llm_tasks, diagnosis_tasks, llm_client):
             asyncio.run(_gather())
     except Exception:
         for i, given, correct, stem, expl, options_str, qtype, difficulty in llm_tasks:
-            answers[i]["is_correct"] = (given == correct)
+            answers[i]["is_correct"] = _answers_equal(given, correct)
             answers[i]["reason"] = "降级（事件循环异常）"
             answers[i]["method"] = "fallback"
         logger.exception("LLM 批量判定事件循环异常")
@@ -553,6 +569,34 @@ def _normalize(s: str) -> str:
     return "".join(result)
 
 
+def _strip_latex_delimiters(s: str) -> str:
+    """去掉 LaTeX 公式包裹符，用于填空判题归一化。$x=5$ → x=5"""
+    s = s.strip()
+    if s.startswith("$$") and s.endswith("$$"):
+        s = s[2:-2]
+    elif s.startswith("$") and s.endswith("$"):
+        s = s[1:-1]
+    return s.strip()
+
+
+def _answers_equal(given: str, correct: str) -> bool:
+    """Rule/fallback equality with whitespace and LaTeX delimiter tolerance."""
+    if _normalize(given) == _normalize(correct):
+        return True
+
+    given_inner = _strip_latex_delimiters(given)
+    correct_inner = _strip_latex_delimiters(correct)
+    if _normalize(given_inner) == _normalize(correct_inner):
+        return True
+
+    return _compact_answer(given_inner) == _compact_answer(correct_inner)
+
+
+def _compact_answer(s: str) -> str:
+    """Normalize then remove all whitespace for formula-like short answers."""
+    return re.sub(r"\s+", "", _normalize(s))
+
+
 def _strip_label(s: str) -> str:
     """去掉选项前标号：'(A)' / 'A.' / '①' / 'A、' → 'A'，支持多字母 AB/ACD。"""
     return re.sub(
@@ -561,32 +605,69 @@ def _strip_label(s: str) -> str:
 
 
 def _make_example(schema_cls) -> dict:
-    """生成示例 JSON，原生类型用类型匹配的示例值。"""
+    """生成示例 JSON，原生类型用类型匹配的示例值。
+
+    Optional / Union 类型（含 None）统一输出 null，避免 placeholder 字符串
+    与 prompt 中的 "设为 null" 矛盾，导致 LLM 混淆产生畸形 JSON。
+    """
     from pydantic import BaseModel
     import typing
+
+    def _is_optional(ann) -> bool:
+        """判断注解是否包含 None（Optional[...] 或 Union[..., None]）。"""
+        origin = typing.get_origin(ann)
+        if origin is typing.Union:
+            return type(None) in typing.get_args(ann)
+        return False
+
+    def _non_none_type(ann):
+        """从 Optional[X] / Union[X, None] 中提取非 None 类型；若无法提取返回 ann。"""
+        origin = typing.get_origin(ann)
+        if origin is typing.Union:
+            non_none = [a for a in typing.get_args(ann) if a is not type(None)]
+            if len(non_none) == 1:
+                return non_none[0]
+        return ann
 
     example = {}
     for field_name, field_info in schema_cls.model_fields.items():
         annotation = field_info.annotation
+
+        # Optional / Union[..., None] → null，与 prompt "设为 null" 一致
+        if _is_optional(annotation):
+            example[field_name] = None
+            continue
+
         # list 类型
-        if hasattr(annotation, "__origin__") and annotation.__origin__ is list:
+        origin = typing.get_origin(annotation)
+        if origin is list:
             args = typing.get_args(annotation)
             if args and isinstance(args[0], type) and issubclass(args[0], BaseModel):
                 example[field_name] = [_make_example(args[0])]
             else:
                 example[field_name] = [f"<{field_info.description or field_name}>"]
+            continue
+
         # 嵌套 BaseModel
-        elif isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        if isinstance(annotation, type) and issubclass(annotation, BaseModel):
             example[field_name] = _make_example(annotation)
+            continue
         # bool: 用 false 而非字符串占位符
-        elif annotation is bool:
+        if annotation is bool:
             example[field_name] = False
+            continue
         # int
-        elif annotation is int:
+        if annotation is int:
             example[field_name] = 0
+            continue
         # float
-        elif annotation is float:
+        if annotation is float:
             example[field_name] = 0.0
-        else:
-            example[field_name] = f"<{field_info.description or field_name}>"
+            continue
+        # Enum
+        if isinstance(annotation, type) and hasattr(annotation, "__members__"):
+            example[field_name] = next(iter(annotation.__members__.values())).value
+            continue
+
+        example[field_name] = f"<{field_info.description or field_name}>"
     return example

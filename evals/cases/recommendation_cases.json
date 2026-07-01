@@ -1,0 +1,209 @@
+[
+  {
+    "case_id": "rec_001",
+    "student_id": "eval_student_001",
+    "scenario": "连续答错的任务状态应进入推荐 Top3",
+    "top_k": 3,
+    "attempts": [
+      {
+        "section_id": "3.1.2",
+        "topic": "任务状态",
+        "question_type": "choice",
+        "difficulty": "easy",
+        "is_correct": false,
+        "error_type": "concept_confusion"
+      },
+      {
+        "section_id": "3.1.2",
+        "topic": "任务状态",
+        "question_type": "fill_blank",
+        "difficulty": "easy",
+        "is_correct": false,
+        "error_type": "concept_confusion"
+      },
+      {
+        "section_id": "5.3.2",
+        "topic": "信号量操作",
+        "question_type": "choice",
+        "difficulty": "medium",
+        "is_correct": true,
+        "error_type": null
+      }
+    ],
+    "expected_top_sections": ["3.1.2"],
+    "expected_low_priority_sections": ["5.3.2"],
+    "expected_question_types": {
+      "3.1.2": ["choice", "short_answer"]
+    }
+  },
+  {
+    "case_id": "rec_002",
+    "student_id": "eval_student_002",
+    "scenario": "全对序列的 BKT P(L) 应上升，已掌握 topic 应退场",
+    "top_k": 3,
+    "attempts": [
+      {
+        "section_id": "5.5.1",
+        "topic": "消息邮箱",
+        "question_type": "choice",
+        "difficulty": "easy",
+        "is_correct": true,
+        "error_type": null
+      },
+      {
+        "section_id": "5.5.1",
+        "topic": "消息邮箱",
+        "question_type": "fill_blank",
+        "difficulty": "easy",
+        "is_correct": true,
+        "error_type": null
+      },
+      {
+        "section_id": "5.5.1",
+        "topic": "消息邮箱",
+        "question_type": "short_answer",
+        "difficulty": "medium",
+        "is_correct": true,
+        "error_type": null
+      },
+      {
+        "section_id": "3.4.3",
+        "topic": "任务调度",
+        "question_type": "choice",
+        "difficulty": "medium",
+        "is_correct": false,
+        "error_type": "reasoning_error"
+      }
+    ],
+    "expected_bkt_direction": {
+      "5.5.1": "increase"
+    },
+    "expected_top_sections": ["3.4.3"],
+    "expected_low_priority_sections": ["5.5.1"],
+    "expected_question_types": {
+      "3.4.3": ["short_answer", "comprehensive"]
+    }
+  },
+  {
+    "case_id": "rec_003",
+    "student_id": "eval_student_003",
+    "scenario": "全错序列的 BKT P(L) 应下降并被优先推荐",
+    "top_k": 3,
+    "attempts": [
+      {
+        "section_id": "3.4.3",
+        "topic": "任务调度",
+        "question_type": "choice",
+        "difficulty": "medium",
+        "is_correct": false,
+        "error_type": "reasoning_error"
+      },
+      {
+        "section_id": "3.4.3",
+        "topic": "任务调度",
+        "question_type": "short_answer",
+        "difficulty": "medium",
+        "is_correct": false,
+        "error_type": "reasoning_error"
+      },
+      {
+        "section_id": "3.4.3",
+        "topic": "任务调度",
+        "question_type": "comprehensive",
+        "difficulty": "hard",
+        "is_correct": false,
+        "error_type": "reasoning_error"
+      },
+      {
+        "section_id": "4.3.1",
+        "topic": "任务延时",
+        "question_type": "choice",
+        "difficulty": "easy",
+        "is_correct": true,
+        "error_type": null
+      }
+    ],
+    "expected_bkt_direction": {
+      "3.4.3": "decrease"
+    },
+    "expected_top_sections": ["3.4.3"],
+    "expected_low_priority_sections": ["4.3.1"],
+    "expected_question_types": {
+      "3.4.3": ["short_answer", "comprehensive"]
+    }
+  },
+  {
+    "case_id": "rec_004",
+    "student_id": "eval_student_004",
+    "scenario": "主要错因为记忆缺失时，推荐题型应偏 choice/fill_blank",
+    "top_k": 3,
+    "attempts": [
+      {
+        "section_id": "5.3.2",
+        "topic": "信号量操作函数",
+        "question_type": "fill_blank",
+        "difficulty": "easy",
+        "is_correct": false,
+        "error_type": "memory_gap"
+      },
+      {
+        "section_id": "5.3.2",
+        "topic": "信号量操作函数",
+        "question_type": "choice",
+        "difficulty": "easy",
+        "is_correct": false,
+        "error_type": "memory_gap"
+      },
+      {
+        "section_id": "5.4.1",
+        "topic": "优先级反转",
+        "question_type": "short_answer",
+        "difficulty": "medium",
+        "is_correct": true,
+        "error_type": null
+      }
+    ],
+    "expected_top_sections": ["5.3.2"],
+    "expected_low_priority_sections": ["5.4.1"],
+    "expected_question_types": {
+      "5.3.2": ["choice", "fill_blank"]
+    }
+  },
+  {
+    "case_id": "rec_005",
+    "student_id": "eval_student_005",
+    "scenario": "样本不足但低掌握的知识点应保留探索机会",
+    "top_k": 3,
+    "attempts": [
+      {
+        "section_id": "7.2.1",
+        "topic": "创建动态内存分区",
+        "question_type": "code_fill",
+        "difficulty": "medium",
+        "is_correct": false,
+        "error_type": "transfer_failure"
+      },
+      {
+        "section_id": "5.6.1",
+        "topic": "消息队列",
+        "question_type": "choice",
+        "difficulty": "medium",
+        "is_correct": true,
+        "error_type": null
+      },
+      {
+        "section_id": "5.6.1",
+        "topic": "消息队列",
+        "question_type": "short_answer",
+        "difficulty": "medium",
+        "is_correct": true,
+        "error_type": null
+      }
+    ],
+    "expected_top_sections": ["7.2.1"],
+    "expected_low_priority_sections": ["5.6.1"],
+    "expected_question_types": {
+      "7.2.1": ["choice", "short_answer", "comprehensive"]
+    }
+  }
+]

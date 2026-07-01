@@ -1,0 +1,560 @@
+{
+  "eval_type": "all",
+  "run_id": "20260701_163925",
+  "created_at": "2026-07-01T16:39:25",
+  "metrics": [
+    {
+      "name": "overall_score",
+      "value": 0.8917748917748917,
+      "threshold": 0.8,
+      "passed": true,
+      "detail": "三类评测通过指标比例的平均值"
+    },
+    {
+      "name": "generation_score",
+      "value": 0.8181818181818182,
+      "threshold": 0.8,
+      "passed": true,
+      "detail": "出题质量评测通过指标比例"
+    },
+    {
+      "name": "judge_score",
+      "value": 0.8571428571428571,
+      "threshold": 0.8,
+      "passed": true,
+      "detail": "判题一致性评测通过指标比例"
+    },
+    {
+      "name": "recommendation_score",
+      "value": 1.0,
+      "threshold": 0.8,
+      "passed": true,
+      "detail": "推荐策略评测通过指标比例"
+    }
+  ],
+  "failures": [
+    {
+      "case_id": "generation:gen_001",
+      "item_id": "q003",
+      "reason": "难度不在允许集合内",
+      "evidence": {
+        "eval_type": "generation",
+        "difficulty": "hard",
+        "allowed_difficulty": [
+          "easy",
+          "medium"
+        ],
+        "source": "1.2.3"
+      }
+    },
+    {
+      "case_id": "generation:gen_001",
+      "item_id": "q002",
+      "reason": "LLM 专家审稿未通过",
+      "evidence": {
+        "eval_type": "generation",
+        "overall": 0.8,
+        "verdict": "fail",
+        "issues": [
+          "题目内容与章节核心主题（实时操作系统需要满足的条件）关联不紧密，未体现expected_keywords（实时、响应、可预测、确定性）。"
+        ],
+        "suggestion": "建议将题目修改为与章节核心条件直接相关的内容，例如任务切换时间与任务数无关、中断延迟可预知等。示例：'在实时操作系统中，为保证系统可预测性，任务的切换时间应与____无关。' 答案为'系统中的任务数'。",
+        "stem": "在不可剥夺型内核中，每个任务必须___CPU的使用权。"
+      }
+    },
+    {
+      "case_id": "generation:gen_001",
+      "item_id": "q003",
+      "reason": "LLM 专家审稿未通过",
+      "evidence": {
+        "eval_type": "generation",
+        "overall": 0.5,
+        "verdict": "fail",
+        "issues": [
+          "题目标注难度为 hard，但章节允许的难度仅为 easy 和 medium，不符合要求",
+          "题目要求从三个方面分析，章节内容对代价和系统开销的阐述较简略，可能超出材料直接覆盖范围"
+        ],
+        "suggestion": "将难度改为 medium，或简化题目为直接分析可剥夺型内核如何保障高优先级任务响应时间，避免要求系统开销等超出章节详述的内容",
+        "stem": "在可剥夺型内核中，高优先级任务的响应时间是如何得到保障的？与不可剥夺型内核相比，这种保障有什么代价？请从调度机制、响应时间可预测性和系统开销三个方面进行分析。"
+      }
+    },
+    {
+      "case_id": "judge:judge_015",
+      "item_id": "judge_015",
+      "reason": "错误样本缺少合法错因类型",
+      "evidence": {
+        "eval_type": "judge",
+        "question_type": "choice",
+        "expected_correct": false,
+        "predicted_correct": false,
+        "expected_error_type": "memory_gap",
+        "predicted_error_type": "",
+        "method": "rule",
+        "reason": "未作答",
+        "stem": "空答案边界：以下哪个是信号量释放函数？",
+        "student_answer": "",
+        "correct_answer": "A",
+        "error_evidence": "",
+        "error_suggestion": "",
+        "legal_error_types": [
+          "concept_confusion",
+          "memory_gap",
+          "reasoning_error",
+          "misread_question",
+          "careless",
+          "transfer_failure"
+        ]
+      }
+    },
+    {
+      "case_id": "judge:judge_015",
+      "item_id": "judge_015",
+      "reason": "错误样本诊断不完整",
+      "evidence": {
+        "eval_type": "judge",
+        "question_type": "choice",
+        "expected_correct": false,
+        "predicted_correct": false,
+        "expected_error_type": "memory_gap",
+        "predicted_error_type": "",
+        "method": "rule",
+        "reason": "未作答",
+        "stem": "空答案边界：以下哪个是信号量释放函数？",
+        "student_answer": "",
+        "correct_answer": "A",
+        "error_evidence": "",
+        "error_suggestion": ""
+      }
+    }
+  ],
+  "summary": "总分 89%，出题 82%，判题 86%，推荐 100%；失败项 5 条，回退指标 3 个。",
+  "metadata": {
+    "cases_dir": "D:\\trae\\book_exam\\evals\\cases",
+    "reports_dir": "D:\\trae\\book_exam\\evals\\reports",
+    "questions_file": "",
+    "generation_limit": 5,
+    "judge_limit": null,
+    "recommendation_limit": null,
+    "recommendation_target_count": 8,
+    "generation_eval_mode": "live_llm_generation",
+    "generation_llm": {
+      "enabled": true,
+      "provider": "deepseek",
+      "model": "deepseek-v4-flash",
+      "model_source": "default",
+      "api_key_env": "DEEPSEEK_API_KEY",
+      "api_key_present": true,
+      "base_url": "https://api.deepseek.com"
+    },
+    "generation_review_llm_configured": true,
+    "generation_review_llm": {
+      "enabled": true,
+      "provider": "deepseek",
+      "model": "deepseek-v4-flash",
+      "model_source": "default",
+      "api_key_env": "DEEPSEEK_API_KEY",
+      "api_key_present": true,
+      "base_url": "https://api.deepseek.com"
+    },
+    "judge_llm_configured": true,
+    "judge_llm": {
+      "enabled": true,
+      "provider": "deepseek",
+      "model": "deepseek-v4-flash",
+      "model_source": "default",
+      "api_key_env": "DEEPSEEK_API_KEY",
+      "api_key_present": true,
+      "base_url": "https://api.deepseek.com"
+    },
+    "metric_snapshot": {
+      "generation.format_pass_rate": 1.0,
+      "generation.type_adherence_rate": 1.0,
+      "generation.difficulty_adherence_rate": 0.8,
+      "generation.answer_presence_rate": 1.0,
+      "generation.explanation_presence_rate": 1.0,
+      "generation.duplicate_rate": 0.0,
+      "generation.llm_review_pass_rate": 0.6,
+      "generation.llm_review_average_score": 0.8399999999999999,
+      "generation.relevance_pass_rate": 0.8,
+      "generation.correctness_pass_rate": 1.0,
+      "generation.difficulty_fit_pass_rate": 0.8,
+      "judge.objective_accuracy": 1.0,
+      "judge.subjective_agreement": 1.0,
+      "judge.false_positive_rate": 0.0,
+      "judge.false_negative_rate": 0.0,
+      "judge.error_type_valid_rate": 0.8571428571428571,
+      "judge.diagnosis_completeness": 0.8571428571428571,
+      "judge.fallback_pass_rate": 1.0,
+      "recommendation.bkt_monotonic_pass": 1.0,
+      "recommendation.weak_topic_hit_rate": 1.0,
+      "recommendation.mastered_retire_rate": 1.0,
+      "recommendation.recommendation_reason_rate": 1.0,
+      "recommendation.error_to_type_match_rate": 1.0,
+      "recommendation.delta_mastery_valid_rate": 1.0
+    },
+    "metric_diffs": [
+      {
+        "name": "generation.answer_presence_rate",
+        "current": 1.0,
+        "previous": 1.0,
+        "delta": 0.0,
+        "status": "stable"
+      },
+      {
+        "name": "generation.correctness_pass_rate",
+        "current": 1.0,
+        "previous": 1.0,
+        "delta": 0.0,
+        "status": "stable"
+      },
+      {
+        "name": "generation.difficulty_adherence_rate",
+        "current": 0.8,
+        "previous": 0.8,
+        "delta": 0.0,
+        "status": "stable"
+      },
+      {
+        "name": "generation.difficulty_fit_pass_rate",
+        "current": 0.8,
+        "previous": 0.8,
+        "delta": 0.0,
+        "status": "stable"
+      },
+      {
+        "name": "generation.duplicate_rate",
+        "current": 0.0,
+        "previous": 0.0,
+        "delta": 0.0,
+        "status": "stable"
+      },
+      {
+        "name": "generation.explanation_presence_rate",
+        "current": 1.0,
+        "previous": 1.0,
+        "delta": 0.0,
+        "status": "stable"
+      },
+      {
+        "name": "generation.format_pass_rate",
+        "current": 1.0,
+        "previous": 1.0,
+        "delta": 0.0,
+        "status": "stable"
+      },
+      {
+        "name": "generation.llm_review_average_score",
+        "current": 0.8399999999999999,
+        "previous": 0.8899999999999999,
+        "delta": -0.050000000000000044,
+        "status": "regressed"
+      },
+      {
+        "name": "generation.llm_review_pass_rate",
+        "current": 0.6,
+        "previous": 0.8,
+        "delta": -0.20000000000000007,
+        "status": "regressed"
+      },
+      {
+        "name": "generation.relevance_pass_rate",
+        "current": 0.8,
+        "previous": 1.0,
+        "delta": -0.19999999999999996,
+        "status": "regressed"
+      },
+      {
+        "name": "generation.type_adherence_rate",
+        "current": 1.0,
+        "previous": 1.0,
+        "delta": 0.0,
+        "status": "stable"
+      },
+      {
+        "name": "judge.diagnosis_completeness",
+        "current": 0.8571428571428571,
+        "previous": 0.8571428571428571,
+        "delta": 0.0,
+        "status": "stable"
+      },
+      {
+        "name": "judge.error_type_valid_rate",
+        "current": 0.8571428571428571,
+        "previous": 0.8571428571428571,
+        "delta": 0.0,
+        "status": "stable"
+      },
+      {
+        "name": "judge.fallback_pass_rate",
+        "current": 1.0,
+        "previous": 1.0,
+        "delta": 0.0,
+        "status": "stable"
+      },
+      {
+        "name": "judge.false_negative_rate",
+        "current": 0.0,
+        "previous": 0.0,
+        "delta": 0.0,
+        "status": "stable"
+      },
+      {
+        "name": "judge.false_positive_rate",
+        "current": 0.0,
+        "previous": 0.0,
+        "delta": 0.0,
+        "status": "stable"
+      },
+      {
+        "name": "judge.objective_accuracy",
+        "current": 1.0,
+        "previous": 1.0,
+        "delta": 0.0,
+        "status": "stable"
+      },
+      {
+        "name": "judge.subjective_agreement",
+        "current": 1.0,
+        "previous": 1.0,
+        "delta": 0.0,
+        "status": "stable"
+      },
+      {
+        "name": "recommendation.bkt_monotonic_pass",
+        "current": 1.0,
+        "previous": 1.0,
+        "delta": 0.0,
+        "status": "stable"
+      },
+      {
+        "name": "recommendation.delta_mastery_valid_rate",
+        "current": 1.0,
+        "previous": 1.0,
+        "delta": 0.0,
+        "status": "stable"
+      },
+      {
+        "name": "recommendation.error_to_type_match_rate",
+        "current": 1.0,
+        "previous": 1.0,
+        "delta": 0.0,
+        "status": "stable"
+      },
+      {
+        "name": "recommendation.mastered_retire_rate",
+        "current": 1.0,
+        "previous": 1.0,
+        "delta": 0.0,
+        "status": "stable"
+      },
+      {
+        "name": "recommendation.recommendation_reason_rate",
+        "current": 1.0,
+        "previous": 1.0,
+        "delta": 0.0,
+        "status": "stable"
+      },
+      {
+        "name": "recommendation.weak_topic_hit_rate",
+        "current": 1.0,
+        "previous": 1.0,
+        "delta": 0.0,
+        "status": "stable"
+      }
+    ],
+    "sections": {
+      "generation": {
+        "summary": "共评测 5 道题，9/11 个指标通过，失败项 3 条。",
+        "json_path": "D:\\trae\\book_exam\\evals\\reports\\generation_eval_20260701_163827.json",
+        "md_path": "D:\\trae\\book_exam\\evals\\reports\\generation_eval_20260701_163827.md",
+        "metrics": [
+          {
+            "name": "format_pass_rate",
+            "value": 1.0,
+            "threshold": 0.95,
+            "passed": true,
+            "detail": "5/5，必填字段和选择题选项完整"
+          },
+          {
+            "name": "type_adherence_rate",
+            "value": 1.0,
+            "threshold": 0.9,
+            "passed": true,
+            "detail": "5/5，题型满足 case 约束或合法题型集合"
+          },
+          {
+            "name": "difficulty_adherence_rate",
+            "value": 0.8,
+            "threshold": 0.9,
+            "passed": false,
+            "detail": "4/5，难度满足 case 约束或合法难度集合"
+          },
+          {
+            "name": "answer_presence_rate",
+            "value": 1.0,
+            "threshold": 0.98,
+            "passed": true,
+            "detail": "5/5，correct_answer 非空"
+          },
+          {
+            "name": "explanation_presence_rate",
+            "value": 1.0,
+            "threshold": 0.9,
+            "passed": true,
+            "detail": "5/5，explanation 非空"
+          },
+          {
+            "name": "duplicate_rate",
+            "value": 0.0,
+            "threshold": 0.15,
+            "passed": true,
+            "detail": "0/5 道题被判定为重复或高度相似"
+          },
+          {
+            "name": "llm_review_pass_rate",
+            "value": 0.6,
+            "threshold": 0.8,
+            "passed": false,
+            "detail": "3/5，LLM 专家审稿综合通过率"
+          },
+          {
+            "name": "llm_review_average_score",
+            "value": 0.8399999999999999,
+            "threshold": 0.75,
+            "passed": true,
+            "detail": "5 道题 LLM 专家综合评分均值"
+          },
+          {
+            "name": "relevance_pass_rate",
+            "value": 0.8,
+            "threshold": 0.8,
+            "passed": true,
+            "detail": "4/5，相关性评分 >= 0.70"
+          },
+          {
+            "name": "correctness_pass_rate",
+            "value": 1.0,
+            "threshold": 0.8,
+            "passed": true,
+            "detail": "5/5，正确性评分 >= 0.70"
+          },
+          {
+            "name": "difficulty_fit_pass_rate",
+            "value": 0.8,
+            "threshold": 0.8,
+            "passed": true,
+            "detail": "4/5，难度匹配评分 >= 0.70"
+          }
+        ],
+        "failure_count": 3
+      },
+      "judge": {
+        "summary": "共评测 15 道判题样本，6/7 个指标通过，失败项 2 条。",
+        "json_path": "D:\\trae\\book_exam\\evals\\reports\\judge_eval_20260701_163925.json",
+        "md_path": "D:\\trae\\book_exam\\evals\\reports\\judge_eval_20260701_163925.md",
+        "metrics": [
+          {
+            "name": "objective_accuracy",
+            "value": 1.0,
+            "threshold": 0.98,
+            "passed": true,
+            "detail": "8/8 道客观题判定与 golden 一致"
+          },
+          {
+            "name": "subjective_agreement",
+            "value": 1.0,
+            "threshold": 0.8,
+            "passed": true,
+            "detail": "7/7 道主观题判定与 golden 一致"
+          },
+          {
+            "name": "false_positive_rate",
+            "value": 0.0,
+            "threshold": 0.05,
+            "passed": true,
+            "detail": "0/7 道实际错误样本被判为正确"
+          },
+          {
+            "name": "false_negative_rate",
+            "value": 0.0,
+            "threshold": 0.05,
+            "passed": true,
+            "detail": "0/8 道实际正确样本被判为错误"
+          },
+          {
+            "name": "error_type_valid_rate",
+            "value": 0.8571428571428571,
+            "threshold": 0.95,
+            "passed": false,
+            "detail": "6/7 道错误样本产出合法错因"
+          },
+          {
+            "name": "diagnosis_completeness",
+            "value": 0.8571428571428571,
+            "threshold": 0.8,
+            "passed": true,
+            "detail": "6/7 道错误样本含 evidence 和 suggestion"
+          },
+          {
+            "name": "fallback_pass_rate",
+            "value": 1.0,
+            "threshold": 1.0,
+            "passed": true,
+            "detail": "LLM 未配置时 JudgeGraph 能稳定返回结果"
+          }
+        ],
+        "failure_count": 2
+      },
+      "recommendation": {
+        "summary": "共回放 5/5 个推荐样本，6/6 个指标通过，失败项 0 条。",
+        "json_path": "D:\\trae\\book_exam\\evals\\reports\\recommendation_eval_20260701_163925.json",
+        "md_path": "D:\\trae\\book_exam\\evals\\reports\\recommendation_eval_20260701_163925.md",
+        "metrics": [
+          {
+            "name": "bkt_monotonic_pass",
+            "value": 1.0,
+            "threshold": 1.0,
+            "passed": true,
+            "detail": "2/2 个 BKT 方向检查通过"
+          },
+          {
+            "name": "weak_topic_hit_rate",
+            "value": 1.0,
+            "threshold": 0.8,
+            "passed": true,
+            "detail": "5/5 个薄弱章节进入 TopK"
+          },
+          {
+            "name": "mastered_retire_rate",
+            "value": 1.0,
+            "threshold": 0.8,
+            "passed": true,
+            "detail": "5/5 个低优先级章节排序低于薄弱章节"
+          },
+          {
+            "name": "recommendation_reason_rate",
+            "value": 1.0,
+            "threshold": 0.9,
+            "passed": true,
+            "detail": "10/10 个推荐条目包含原因"
+          },
+          {
+            "name": "error_to_type_match_rate",
+            "value": 1.0,
+            "threshold": 0.8,
+            "passed": true,
+            "detail": "5/5 个推荐题型匹配错因预期"
+          },
+          {
+            "name": "delta_mastery_valid_rate",
+            "value": 1.0,
+            "threshold": 1.0,
+            "passed": true,
+            "detail": "10/10 个 BKT delta 在合理范围内"
+          }
+        ],
+        "failure_count": 0
+      }
+    }
+  }
+}

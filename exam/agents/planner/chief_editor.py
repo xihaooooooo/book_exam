@@ -1,5 +1,6 @@
 """主编 Agent：读目录 → 选题、分配题型/难度 → 产出任务清单"""
 
+import logging
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
@@ -11,6 +12,8 @@ from exam.agents.utils.agent_utils import (
     search_keyword,
 )
 from exam.agents.utils.structured import invoke_structured
+
+logger = logging.getLogger(__name__)
 
 
 class TaskItem(BaseModel):
@@ -54,6 +57,7 @@ def create_chief_editor(config: dict = None):
         focus = state.get("focus", "")
         target_count = state.get("target_count", 0)
         allowed_types = state.get("allowed_types", "")
+        allowed_difficulty = state.get("allowed_difficulty", "")
 
         # 格式化目录
         toc_lines = []
@@ -199,6 +203,17 @@ def create_chief_editor(config: dict = None):
         if allowed_types:
             types_instruction = f"\n题型限制：**只允许 {allowed_types}**，不出其他题型。\n"
 
+        # ── 难度指令 ──
+        diff_instruction = ""
+        if allowed_difficulty:
+            diff_instruction = f"\n难度限制：**只允许 {allowed_difficulty}**，不出其他难度。\n"
+
+        # L1: LaTeX 公式规范
+        latex_instruction = (
+            "\n数学表达式和公式必须使用 LaTeX 语法。"
+            "内联公式用 $...$ 包裹，单独成行的公式用 $$...$$ 包裹。\n"
+        )
+
         system_message = (
             strategy_instruction +
             """你是一份教材的试卷主编。你收到一本书的目录结构，需要规划一份覆盖全书重点的试卷。
@@ -221,7 +236,9 @@ def create_chief_editor(config: dict = None):
 - 代码填空题：适合考源码理解、关键逻辑（给一段代码，挖掉关键位置让考生补全）
 - 综合题：适合考代码分析、运行推演、方案设计（可含多知识点串联）
 """
-            + types_instruction +
+            + types_instruction
+            + diff_instruction
+            + latex_instruction +
             """
 ### 3. 难度设定
 - 简单：基础概念记忆、单个方法的直接应用
@@ -292,9 +309,38 @@ task_id | 章 | 节 | 知识点评述(10-20字) | 题型 | 难度
         else:
             tasks = []
 
-        # 难度目标比例：优先用往年数据，否则用默认 3:4:3
+        # ── 硬过滤：LLM 可能不遵守限制，在此强制剔除 ──
+        if allowed_types:
+            allowed_set = set(allowed_types.replace("，", ",").split(","))
+            allowed_set = {t.strip() for t in allowed_set if t.strip()}
+            before = len(tasks)
+            tasks = [t for t in tasks if t["question_type"] in allowed_set]
+            if len(tasks) < before:
+                logger.info("chief_editor: 题型过滤 %d → %d（只保留 %s）", before, len(tasks), allowed_set)
+        if allowed_difficulty:
+            diff_set = set(allowed_difficulty.replace("，", ",").split(","))
+            diff_set = {d.strip() for d in diff_set if d.strip()}
+            before = len(tasks)
+            tasks = [t for t in tasks if t["difficulty"] in diff_set]
+            if len(tasks) < before:
+                logger.info("chief_editor: 难度过滤 %d → %d（只保留 %s）", before, len(tasks), diff_set)
+
+        # ── 重新编号 ──
+        for i, t in enumerate(tasks):
+            t["id"] = i + 1
+
+        # 难度目标比例：用户指定 > 往年数据 > 默认 3:4:3
         diff_ratio = (3, 4, 3)
-        if analysis_report:
+        if allowed_difficulty:
+            diffs = set(allowed_difficulty.replace("，", ",").split(","))
+            diffs = {d.strip() for d in diffs if d.strip()}
+            e = 1 if "easy" in diffs else 0
+            m = 1 if "medium" in diffs else 0
+            h = 1 if "hard" in diffs else 0
+            if e + m + h > 0:
+                diff_ratio = (e, m, h)
+                logger.info("chief_editor: 用户指定难度 %s → 比例 %s", allowed_difficulty, diff_ratio)
+        elif analysis_report:
             diff_dist = analysis_report.get("aggregated", {}).get("difficulty_distribution", {})
             if diff_dist:
                 e = diff_dist.get("easy", 0)

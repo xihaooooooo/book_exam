@@ -1,0 +1,234 @@
+{
+  "eval_type": "generation",
+  "run_id": "20260701_163232",
+  "created_at": "2026-07-01T16:32:32",
+  "metrics": [
+    {
+      "name": "format_pass_rate",
+      "value": 1.0,
+      "threshold": 0.95,
+      "passed": true,
+      "detail": "5/5，必填字段和选择题选项完整"
+    },
+    {
+      "name": "type_adherence_rate",
+      "value": 1.0,
+      "threshold": 0.9,
+      "passed": true,
+      "detail": "5/5，题型满足 case 约束或合法题型集合"
+    },
+    {
+      "name": "difficulty_adherence_rate",
+      "value": 0.8,
+      "threshold": 0.9,
+      "passed": false,
+      "detail": "4/5，难度满足 case 约束或合法难度集合"
+    },
+    {
+      "name": "answer_presence_rate",
+      "value": 1.0,
+      "threshold": 0.98,
+      "passed": true,
+      "detail": "5/5，correct_answer 非空"
+    },
+    {
+      "name": "explanation_presence_rate",
+      "value": 1.0,
+      "threshold": 0.9,
+      "passed": true,
+      "detail": "5/5，explanation 非空"
+    },
+    {
+      "name": "duplicate_rate",
+      "value": 0.0,
+      "threshold": 0.15,
+      "passed": true,
+      "detail": "0/5 道题被判定为重复或高度相似"
+    },
+    {
+      "name": "llm_review_pass_rate",
+      "value": 0.8,
+      "threshold": 0.8,
+      "passed": true,
+      "detail": "4/5，LLM 专家审稿综合通过率"
+    },
+    {
+      "name": "llm_review_average_score",
+      "value": 0.8899999999999999,
+      "threshold": 0.75,
+      "passed": true,
+      "detail": "5 道题 LLM 专家综合评分均值"
+    },
+    {
+      "name": "relevance_pass_rate",
+      "value": 1.0,
+      "threshold": 0.8,
+      "passed": true,
+      "detail": "5/5，相关性评分 >= 0.70"
+    },
+    {
+      "name": "correctness_pass_rate",
+      "value": 1.0,
+      "threshold": 0.8,
+      "passed": true,
+      "detail": "5/5，正确性评分 >= 0.70"
+    },
+    {
+      "name": "difficulty_fit_pass_rate",
+      "value": 0.8,
+      "threshold": 0.8,
+      "passed": true,
+      "detail": "4/5，难度匹配评分 >= 0.70"
+    }
+  ],
+  "failures": [
+    {
+      "case_id": "gen_001",
+      "item_id": "q003",
+      "reason": "难度不在允许集合内",
+      "evidence": {
+        "difficulty": "hard",
+        "allowed_difficulty": [
+          "easy",
+          "medium"
+        ],
+        "source": "1.2.3"
+      }
+    },
+    {
+      "case_id": "gen_001",
+      "item_id": "q003",
+      "reason": "LLM 专家审稿未通过",
+      "evidence": {
+        "overall": 0.6,
+        "verdict": "fail",
+        "issues": [
+          "题目标注难度为hard，但章节允许难度仅为easy和medium，不符合约束",
+          "题目要求结合多个概念（三个条件、响应性、可预测性、内核类型、中断延迟），对easy/medium而言可能过于复杂"
+        ],
+        "suggestion": "将难度改为medium，或适当简化问题，例如只要求解释两个条件或删除对内核类型的要求",
+        "stem": "有些开发者认为，只要系统能够对输入事件快速作出响应，就可以称为实时操作系统。请指出这种观点的错误之处，并分别说明实时操作系统必须满足的三个条件各自如何保障“响应性”和“可预测性”。回答中需结合内核类型（可剥夺/不可剥夺）和中断延迟等概念。"
+      }
+    }
+  ],
+  "summary": "共评测 5 道题，10/11 个指标通过，失败项 2 条。",
+  "metadata": {
+    "eval_mode": "live_llm_generation",
+    "generation_source": "live_exam_graph",
+    "cases_file": "D:\\trae\\book_exam\\evals\\cases\\generation_cases.json",
+    "questions_file": "D:\\trae\\book_exam\\evals\\generated\\questions_live_20260701_162953.json",
+    "case_id": "",
+    "limit": 5,
+    "total_questions": 5,
+    "matched_case_questions": 4,
+    "duplicate_threshold": 0.9,
+    "generated_output_dir": "D:\\trae\\book_exam\\evals\\generated",
+    "max_questions": 5,
+    "llm": {
+      "enabled": true,
+      "provider": "deepseek",
+      "model": "deepseek-v4-flash",
+      "model_source": "default",
+      "api_key_env": "DEEPSEEK_API_KEY",
+      "api_key_present": true,
+      "base_url": "https://api.deepseek.com"
+    },
+    "llm_review": {
+      "enabled": true,
+      "reviewer_llm": {
+        "enabled": true,
+        "provider": "deepseek",
+        "model": "deepseek-v4-flash",
+        "model_source": "default",
+        "api_key_env": "DEEPSEEK_API_KEY",
+        "api_key_present": true,
+        "base_url": "https://api.deepseek.com"
+      },
+      "review_pass_threshold": 0.75,
+      "dimension_pass_threshold": 0.7,
+      "total_reviewed": 5,
+      "passed": 4,
+      "average_score": 0.8899999999999999
+    },
+    "llm_review_results": [
+      {
+        "case_id": "gen_001",
+        "item_id": "q001",
+        "relevance": 0.95,
+        "correctness": 0.95,
+        "clarity": 0.95,
+        "answer_quality": 0.95,
+        "explanation_quality": 0.95,
+        "difficulty_fit": 0.95,
+        "exam_value": 0.9,
+        "overall": 0.94,
+        "verdict": "pass",
+        "issues": [],
+        "suggestion": ""
+      },
+      {
+        "case_id": "gen_001",
+        "item_id": "q002",
+        "relevance": 1.0,
+        "correctness": 1.0,
+        "clarity": 1.0,
+        "answer_quality": 1.0,
+        "explanation_quality": 0.9,
+        "difficulty_fit": 1.0,
+        "exam_value": 0.9,
+        "overall": 0.95,
+        "verdict": "pass",
+        "issues": [],
+        "suggestion": "解析可以更完整地引用章节原文中关于任务切换时间固定与任务数无关的表述，但现有解析已足够清晰。"
+      },
+      {
+        "case_id": "gen_001",
+        "item_id": "q003",
+        "relevance": 0.9,
+        "correctness": 0.9,
+        "clarity": 0.85,
+        "answer_quality": 0.9,
+        "explanation_quality": 0.9,
+        "difficulty_fit": 0.0,
+        "exam_value": 0.7,
+        "overall": 0.6,
+        "verdict": "fail",
+        "issues": [
+          "题目标注难度为hard，但章节允许难度仅为easy和medium，不符合约束",
+          "题目要求结合多个概念（三个条件、响应性、可预测性、内核类型、中断延迟），对easy/medium而言可能过于复杂"
+        ],
+        "suggestion": "将难度改为medium，或适当简化问题，例如只要求解释两个条件或删除对内核类型的要求"
+      },
+      {
+        "case_id": "gen_002",
+        "item_id": "q004",
+        "relevance": 1.0,
+        "correctness": 1.0,
+        "clarity": 1.0,
+        "answer_quality": 1.0,
+        "explanation_quality": 1.0,
+        "difficulty_fit": 1.0,
+        "exam_value": 0.9,
+        "overall": 0.98,
+        "verdict": "pass",
+        "issues": [],
+        "suggestion": ""
+      },
+      {
+        "case_id": "output",
+        "item_id": "q005",
+        "relevance": 0.95,
+        "correctness": 1.0,
+        "clarity": 1.0,
+        "answer_quality": 1.0,
+        "explanation_quality": 1.0,
+        "difficulty_fit": 0.95,
+        "exam_value": 0.95,
+        "overall": 0.98,
+        "verdict": "pass",
+        "issues": [],
+        "suggestion": "无"
+      }
+    ]
+  }
+}

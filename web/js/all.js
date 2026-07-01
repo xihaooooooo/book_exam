@@ -1,0 +1,823 @@
+const STUDENT_ID = "default";
+let CURRENT_SESSION_ID = (() => {
+  try { const v = sessionStorage.getItem('current_session_id'); return v ? parseInt(v) : null; } catch(e) { return null; }
+})();
+const TYPE_LABELS = { choice:'选择题', fill_blank:'填空题', short_answer:'简答题', comprehensive:'综合题' };
+const DIFF_LABELS = { easy:'简单', medium:'中等', hard:'困难', easy_to_medium:'简单→中等', medium_to_hard:'中等→困难' };
+const ML_LABELS = { mastered:'已掌握', familiar:'熟悉', unstable:'不稳定', weak:'薄弱', unknown:'未知' };
+const ERROR_TYPE_LABELS = {
+  concept_confusion: '概念混淆',
+  memory_gap: '记忆缺失',
+  reasoning_error: '推理错误',
+  misread_question: '审题错误',
+  careless: '粗心失误',
+  transfer_failure: '迁移失败',
+};
+
+let genMode = 'exam';
+const typeMap = { '选择题': 'choice', '填空题': 'fill_blank', '简答题': 'short_answer' };
+
+let questions = [], qIdx = 0, qStartTs = Date.now(), confidence = 3, answers = [];
+
+// ═══════════════════════════════════
+// L1: LaTeX rendering & safe DOM helpers
+// ═══════════════════════════════════
+function renderLatex(text) {
+  if (!text || typeof text !== 'string') return text;
+  try {
+    text = text.replace(/\$\$([\s\S]+?)\$\$/g, (_, tex) => {
+      try { return katex.renderToString(tex.trim(), {displayMode: true, throwOnError: false}); }
+      catch(e) { return _; }
+    });
+    text = text.replace(/\$([^\$]+?)\$/g, (_, tex) => {
+      try { return katex.renderToString(tex.trim(), {throwOnError: false}); }
+      catch(e) { return _; }
+    });
+  } catch(e) {}
+  return text;
+}
+
+function safeSetHTML(el, text) {
+  if (el) el.innerHTML = renderLatex(text);
+}
+
+function labelOf(i) { return String.fromCharCode(65+i); }
+function fmtPct(v) { return Math.round((v||0)*100)+'%'; }
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function domKey(s) { return Array.from(String(s||'')).map(c => c.charCodeAt(0).toString(36)).join('_'); }
+function pLColor(p) { if(p<0.3)return'#B55A4A'; if(p<0.5)return'#D4956A'; if(p<0.7)return'#C49A5E'; if(p<0.85)return'#8AAA6A'; return'#4A7C59'; }
+
+// ═══════════════════════════════════
+// Beta PDF canvas
+// ═══════════════════════════════════
+function drawBeta(canvasId, alpha, beta) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
+  const N = 80, pts = []; let maxY = 0;
+  for (let i = 0; i <= N; i++) {
+    const x = 0.01 + i/N*0.98, y = betaPDF(x, alpha, beta);
+    pts.push({x,y}); if (y>maxY) maxY=y;
+  }
+  const pad=2, plotW=W-pad*2, plotH=H-pad*2;
+  if (maxY===0||!isFinite(maxY)) return;
+  ctx.fillStyle='rgba(184,137,79,0.15)'; ctx.beginPath(); ctx.moveTo(pad,H-pad);
+  for (const pt of pts) ctx.lineTo(pad+pt.x*plotW, H-pad-(pt.y/maxY)*plotH);
+  ctx.lineTo(W-pad,H-pad); ctx.closePath(); ctx.fill();
+  ctx.strokeStyle='#B8894F'; ctx.lineWidth=1.2; ctx.beginPath();
+  let first=true;
+  for (const pt of pts) { const sx=pad+pt.x*plotW, sy=H-pad-(pt.y/maxY)*plotH; if(first){ctx.moveTo(sx,sy);first=false;} else ctx.lineTo(sx,sy); }
+  ctx.stroke();
+  const mean=alpha/(alpha+beta), mx=pad+mean*plotW;
+  ctx.strokeStyle='rgba(181,90,74,0.4)'; ctx.lineWidth=1; ctx.setLineDash([2,2]);
+  ctx.beginPath(); ctx.moveTo(mx,pad); ctx.lineTo(mx,H-pad); ctx.stroke(); ctx.setLineDash([]);
+}
+function betaPDF(x,a,b){ return Math.exp((a-1)*Math.log(x)+(b-1)*Math.log(1-x)-lbeta(a,b)); }
+function lbeta(a,b){ return lgamma(a)+lgamma(b)-lgamma(a+b); }
+function lgamma(x){
+  if(x<0.5) return Math.log(Math.PI/Math.sin(Math.PI*x))-lgamma(1-x);
+  x-=1; return 0.5*Math.log(2*Math.PI)+(x+0.5)*Math.log(x+5.5)-(x+5.5)+Math.log(1+1/12/(x+5.5)+1/288/(x+5.5)/(x+5.5));
+}
+
+// ═══════════════════════════════════
+// Tab switching
+// ═══════════════════════════════════
+function switchTab(name, updateHash = true) {
+  if (!['generate', 'quiz', 'profile'].includes(name)) name = 'generate';
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.toggle('active', c.id === 'tab-' + name));
+  if (updateHash && location.hash !== '#' + name) {
+    history.replaceState(null, '', '#' + name);
+  }
+  if (name === 'quiz') initQuiz();
+  if (name === 'profile') loadProfile();
+}
+
+// ═══════════════════════════════════
+// Tab 1: Generate
+// ═══════════════════════════════════
+
+function selectMode(mode) {
+  genMode = mode;
+  document.querySelectorAll('.mode-card').forEach(c => c.classList.toggle('sel', c.dataset.mode === mode));
+
+  const examOnly = (mode === 'exam');
+  const diag = (mode === 'diagnostic');
+  const prac = (mode === 'practice');
+
+  // exam: show focus + analysis; diagnostic: hide both; practice: hide both
+  document.getElementById('focusRow').style.display = examOnly ? '' : 'none';
+  document.getElementById('analysisRow').style.display = examOnly ? '' : 'none';
+
+  // diagnostic: force choice only
+  if (diag) {
+    document.querySelectorAll('#typeTags .type-tag').forEach(t => {
+      t.classList.toggle('sel', t.dataset.type === 'choice');
+    });
+    document.getElementById('genCount').value = 0;
+    document.getElementById('countHint').textContent = '0=自动（章数×2，≤30）';
+  } else if (exam) {
+    document.getElementById('countHint').textContent = '0=自动（6-12 自适应）';
+  } else {
+    document.getElementById('countHint').textContent = '0=自动（知识点×3，≤20）';
+  }
+}
+
+function toggleType(el) {
+  // diagnostic 不允许取消选择
+  if (genMode === 'diagnostic' && el.dataset.type === 'choice') return;
+  el.classList.toggle('sel');
+}
+
+function toggleDiff(el) {
+  el.classList.toggle('sel');
+}
+
+async function loadAnalysisReports() {
+  try {
+    const res = await fetch('/api/analysis-reports');
+    if (!res.ok) return;
+    const reports = await res.json();
+    const sel = document.getElementById('genAnalysis');
+    // 清除旧选项（保留第一个"不参照"）
+    while (sel.options.length > 1) sel.remove(1);
+    reports.forEach(r => {
+      const opt = document.createElement('option');
+      opt.value = r.path;
+      opt.textContent = `${r.filename}（${r.exam_count}份卷，${r.total_questions}题）`;
+      sel.appendChild(opt);
+    });
+  } catch(e) {}
+}
+
+function uploadExamFile(input) {
+  const file = input.files[0];
+  if (!file) return;
+
+  const status = document.getElementById('uploadStatus');
+  status.textContent = '⏳ 分析中...';
+  status.style.color = '#8B8680';
+
+  const reader = new FileReader();
+  reader.onload = function() {
+    // 去掉 data:...;base64, 前缀
+    const b64 = reader.result.split(',')[1];
+    fetch('/api/analyze-exam', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename: file.name, data_base64: b64 }),
+    }).then(r => r.json()).then(data => {
+      if (data.ok) {
+        status.textContent = `✅ ${data.filename}（${data.questions}题）`;
+        status.style.color = '#4A7C59';
+        loadAnalysisReports();  // 刷新下拉列表
+        // 自动选中刚生成的报告
+        setTimeout(() => {
+          const sel = document.getElementById('genAnalysis');
+          for (let i = 0; i < sel.options.length; i++) {
+            if (sel.options[i].textContent.includes(data.filename)) {
+              sel.selectedIndex = i;
+              break;
+            }
+          }
+        }, 300);
+      } else {
+        status.textContent = '❌ ' + (data.error || '分析失败');
+        status.style.color = '#B55A4A';
+      }
+    }).catch(e => {
+      status.textContent = '❌ 网络错误';
+      status.style.color = '#B55A4A';
+    });
+  };
+  reader.readAsDataURL(file);
+  input.value = '';
+}
+
+function doGenerate() {
+  const btn = document.getElementById('genBtn');
+  const status = document.getElementById('genStatus');
+  btn.disabled = true;
+  safeSetHTML(status, '<div class="loading-state" style="padding:20px;">⏳ 出题中，请耐心等待（约 30-60 秒）...</div>');
+
+  const selTypes = [];
+  document.querySelectorAll('#typeTags .type-tag.sel').forEach(t => selTypes.push(t.dataset.type));
+  const selDiffs = [];
+  document.querySelectorAll('#diffTags .type-tag.sel').forEach(t => selDiffs.push(t.dataset.diff));
+  const analysisReport = document.getElementById('genAnalysis').value;
+
+  fetch('/api/generate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      mode: genMode,
+      count: parseInt(document.getElementById('genCount').value) || 0,
+      types: selTypes.join(','),
+      difficulty: selDiffs.join(','),
+      focus: document.getElementById('genFocus').value.trim(),
+      student_id: STUDENT_ID,
+      analysis_report: analysisReport,
+    }),
+  }).then(r => r.json()).then(data => {
+    btn.disabled = false;
+    if (data.ok) {
+      CURRENT_SESSION_ID = data.session_id || null;
+      if (CURRENT_SESSION_ID) { try { sessionStorage.setItem('current_session_id', CURRENT_SESSION_ID); } catch(e) {} }
+      safeSetHTML(status, `<div class="gen-result">
+        <div class="big">✅ ${data.count} 题</div>
+        <div style="color:#8B8680;margin:8px 0;">模式：${data.mode} · 已加载到答题区</div>
+        <button class="btn btn-submit" style="margin-top:12px;width:auto;padding:12px 32px;" onclick="switchTab('quiz')">去答题 →</button>
+      </div>`);
+    } else {
+      safeSetHTML(status, `<div class="empty-state" style="padding:20px;color:#B55A4A;">❌ ${data.error || '未知错误'}</div>`);
+    }
+  }).catch(e => {
+    btn.disabled = false;
+    safeSetHTML(status, `<div class="empty-state" style="padding:20px;color:#B55A4A;">❌ 网络错误：${e.message}</div>`);
+  });
+}
+
+// ═══════════════════════════════════
+// Tab 2: Quiz
+// ═══════════════════════════════════
+
+async function fetchQuestions() {
+  try {
+    const res = await fetch('/api/questions');
+    if (res.ok) { questions = await res.json(); return; }
+  } catch(e) {}
+  questions = [];
+}
+
+function initQuiz() {
+  if (questions.length === 0) {
+    safeSetHTML(document.getElementById('quizRoot'), '<div class="card loading-state">⏳ 加载题目中...</div>');
+    fetchQuestions().then(() => {
+      if (questions.length > 0) {
+        answers = new Array(questions.length);
+        qIdx = 0; qStartTs = Date.now(); confidence = 3;
+        renderQuiz();
+      } else {
+        safeSetHTML(document.getElementById('quizRoot'), '<div class="card loading-state">📭 暂无题目，请先去"出题"Tab 生成试卷</div>');
+      }
+    });
+    return;
+  }
+  if (document.getElementById('quizRoot').children.length === 0 ||
+      document.getElementById('quizRoot').querySelector('.loading-state') ||
+      document.getElementById('quizRoot').querySelector('.empty-state')) {
+    answers = new Array(questions.length);
+    qIdx = 0; qStartTs = Date.now(); confidence = 3;
+    renderQuiz();
+  }
+}
+
+function renderQuiz() {
+  if (!questions.length) {
+    safeSetHTML(document.getElementById('quizRoot'), '<div class="card loading-state">📭 暂无题目，请先去"出题"Tab 生成试卷</div>');
+    return;
+  }
+  const q = questions[qIdx], total = questions.length;
+  const ans = answers[qIdx] || {};
+  const isChoice = q.question_type === 'choice';
+  const elapsed = Math.floor((Date.now() - qStartTs) / 1000);
+  const hasAns = ans.student_answer && ans.student_answer.trim();
+
+  let segs = '';
+  for (let i = 0; i < total; i++) segs += `<div class="seg${i<=qIdx?' done':''}"></div>`;
+
+  let inputHtml = '';
+  if (isChoice) {
+    let o = '<div class="opts">';
+    (q.options||[]).forEach((opt,i) => {
+      let cls = labelOf(i) === ans.student_answer ? ' sel' : '';
+      o += `<div class="opt${cls}" data-oi="${i}"><div class="dot">${labelOf(i)}</div><div class="txt">${opt.replace(/^[A-D][.、\s]+/,'')}</div></div>`;
+    });
+    inputHtml = o + '</div>';
+  } else {
+    const ph = q.question_type==='fill_blank'?'请输入答案...':'请输入你的回答...';
+    inputHtml = `<textarea class="tinp" id="textAns" rows="${q.question_type==='short_answer'?4:2}" placeholder="${ph}">${ans.student_answer||''}</textarea>`;
+  }
+
+  let starsHtml = '';
+  for (let i=0;i<5;i++) starsHtml += `<span class="star${i<confidence?' on':''}" data-c="${i+1}">★</span>`;
+
+  const isLast = qIdx === total - 1;
+  const btnHtml = isLast
+    ? `<button class="btn btn-finish" id="submitBtn" onclick="confirmSubmit()" ${!hasAns?'disabled':''}>交卷</button>`
+    : `<button class="btn btn-submit" id="submitBtn" onclick="nextQ()" ${!hasAns?'disabled':''}>下一题 →</button>`;
+
+  safeSetHTML(document.getElementById('quizRoot'), `
+    <div class="card quiz-card">
+      <div class="qinfo">
+        <div class="qtopic">${esc(q.source||'')}  ${esc(q.topic||'')}</div>
+        <div class="qmeta">
+          <div class="qtimer">${String(Math.floor(elapsed/60)).padStart(2,'0')}:${String(elapsed%60).padStart(2,'0')}</div>
+          <div class="badge ${q.question_type}">${TYPE_LABELS[q.question_type]||q.question_type}</div>
+          <div class="badge ${q.difficulty}">${DIFF_LABELS[q.difficulty]||q.difficulty}</div>
+        </div>
+      </div>
+      <div class="qprog">${segs}<div class="qnum">${String(qIdx+1).padStart(2,'0')}/${String(total).padStart(2,'0')}</div></div>
+      <div class="qstem">${esc(q.stem)}</div>
+      ${inputHtml}
+      <div class="conf"><span class="clabel">把握度</span><div class="stars">${starsHtml}</div></div>
+      <div class="btns">${btnHtml}</div>
+    </div>`);
+}
+
+// Delegate quiz events
+document.addEventListener('click', (e) => {
+  if (!document.getElementById('tab-quiz').classList.contains('active')) return;
+  const opt = e.target.closest('.opt');
+  if (opt && !document.querySelector('.opts.submitted')) {
+    const oi = parseInt(opt.dataset.oi);
+    if (!answers[qIdx]) answers[qIdx] = {};
+    answers[qIdx].student_answer = labelOf(oi);
+    document.querySelectorAll('.opt').forEach(el => el.classList.remove('sel'));
+    opt.classList.add('sel');
+    const btn = document.getElementById('submitBtn');
+    if (btn) btn.disabled = false;
+    return;
+  }
+  const star = e.target.closest('.star');
+  if (star) {
+    confidence = parseInt(star.dataset.c);
+    document.querySelectorAll('.star').forEach((s, i) => s.classList.toggle('on', i < confidence));
+    return;
+  }
+});
+
+document.addEventListener('input', (e) => {
+  if (e.target.id === 'textAns') {
+    if (!answers[qIdx]) answers[qIdx] = {};
+    answers[qIdx].student_answer = e.target.value;
+    const btn = document.getElementById('submitBtn');
+    if (btn) btn.disabled = !e.target.value.trim();
+  }
+});
+
+function nextQ() {
+  const ans = answers[qIdx] || {};
+  if (!ans.student_answer) return;
+  ans.duration_sec = Math.floor((Date.now() - qStartTs) / 1000);
+  ans.confidence = confidence;
+  answers[qIdx] = ans;
+  if (qIdx < questions.length - 1) {
+    qIdx++;
+    qStartTs = Date.now();
+    confidence = 3;
+    renderQuiz();
+  }
+}
+
+async function confirmSubmit() {
+  const ans = answers[qIdx] || {};
+  if (!ans.student_answer) return;
+  ans.duration_sec = Math.floor((Date.now() - qStartTs) / 1000);
+  ans.confidence = confidence;
+  answers[qIdx] = ans;
+
+  const unanswered = [];
+  questions.forEach((_, i) => { if (!answers[i] || !answers[i].student_answer || !answers[i].student_answer.trim()) unanswered.push(i + 1); });
+  if (unanswered.length > 0 && !confirm(`第 ${unanswered.join(', ')} 题未作答，确定交卷？`)) return;
+  if (unanswered.length === 0 && !confirm('确定交卷？')) return;
+
+  safeSetHTML(document.getElementById('quizRoot'), '<div class="card loading-state">判题中，请稍候...</div>');
+
+  const results = await submitExam();
+  results.forEach((r, i) => {
+    if (!answers[i]) answers[i] = {};
+    answers[i].is_correct = r.is_correct;
+    answers[i].reason = r.reason;
+    answers[i].method = r.method;
+    answers[i].attempt_id = r.attempt_id;
+    answers[i].error_type = r.error_type || '';
+  });
+  showQuizResult(results);
+}
+
+async function submitExam() {
+  const payload = {
+    student_id: STUDENT_ID,
+    session_id: CURRENT_SESSION_ID,
+    answers: questions.map((q, i) => ({
+      question_type: q.question_type, student_answer: (answers[i] && answers[i].student_answer) || '',
+      correct_answer: q.correct_answer, stem: q.stem, explanation: q.explanation || '',
+      source: q.source || '', topic: q.topic || '', difficulty: q.difficulty || '',
+      duration_sec: (answers[i] && answers[i].duration_sec) || 0,
+      confidence: (answers[i] && answers[i].confidence) || 3,
+    })),
+  };
+  try {
+    const res = await fetch('/api/submit-exam', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(60000),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.ok) {
+        CURRENT_SESSION_ID = null;
+        try { sessionStorage.removeItem('current_session_id'); } catch(e) {}
+        return data.results;
+      }
+    }
+  } catch(e) {}
+  return questions.map((q, i) => {
+    const a = answers[i] || {};
+    const given = String(a.student_answer || '').trim();
+    const correct = String(q.correct_answer || '').trim();
+    let ok = false;
+    if (!given) ok = false;
+    else if (q.question_type === 'choice') ok = given.toUpperCase() === correct.toUpperCase();
+    else ok = given === correct;
+    return { is_correct: ok, reason: '本地判定（降级）', method: 'fallback', correct_answer: q.correct_answer, explanation: q.explanation || '' };
+  });
+}
+
+function showQuizResult(results) {
+  const correct = results.filter(r => r && r.is_correct).length;
+  const total = questions.length;
+  const accuracy = total > 0 ? Math.round(correct / total * 100) : 0;
+  const highConfWrong = results.filter((r, i) => r && !r.is_correct && (answers[i] && answers[i].confidence >= 4)).length;
+
+  let reviewHtml = '';
+  questions.forEach((q, i) => {
+    const a = answers[i] || {}, r = results[i] || {};
+    const ok = r.is_correct;
+    const attemptId = r.attempt_id || a.attempt_id;
+    const correctionHtml = attemptId ? `<div class="correction-actions">
+      ${ok
+        ? `<button class="mini-action" onclick="correctAttempt(${attemptId}, false, ${i})">标为错误</button>`
+        : `<button class="mini-action" onclick="correctAttempt(${attemptId}, true, ${i})">标为正确</button>
+           <button class="mini-action" onclick="changeErrorType(${attemptId}, ${i})">改错因</button>`}
+    </div>` : '';
+    reviewHtml += `<div class="ritem ${ok?'r-ok':'r-no'}">
+      <div>${ok?'✓':'✗'}</div>
+      <div>
+        <div style="font-weight:500;margin-bottom:2px;">${i+1}. ${esc(q.stem)}</div>
+        <div style="font-size:12px;color:#8B8680;">
+          你的：${esc(a.student_answer||'未答')} | 正确：${esc(q.correct_answer)} | ${a.duration_sec||0}s | ${'★'.repeat(a.confidence||0)}
+          ${r.method==='llm'?' | 🤖 LLM':r.method==='fallback'?' | ⚠️ 降级':''}
+          ${r.reason?'<br>'+esc(r.reason):''}
+          ${q.explanation?'<br><span style="color:#4A7C59;">💡 题解：'+esc(q.explanation)+'</span>':''}
+        </div>
+        ${correctionHtml}
+      </div>
+    </div>`;
+  });
+
+  safeSetHTML(document.getElementById('quizRoot'), `
+    <div class="card qresult">
+      <div class="big">${accuracy}<span>%</span></div>
+      <div style="color:#8B8680;font-size:14px;">${accuracy>=80?'非常棒！':accuracy>=60?'不错，继续加油':'别灰心，多练几次'}</div>
+      <div class="stats">
+        <div class="stat"><div class="val">${correct}/${total}</div><div class="lbl">正确</div></div>
+        <div class="stat"><div class="val">${accuracy}%</div><div class="lbl">正确率</div></div>
+        <div class="stat"><div class="val">${highConfWrong}</div><div class="lbl">高信心错误</div></div>
+      </div>
+      <div class="review"><h3>答题回顾</h3>${reviewHtml}</div>
+      <button class="btn btn-next" style="margin-top:16px;width:100%;" onclick="switchTab('profile')">查看画像 →</button>
+      <button class="btn btn-submit" style="margin-top:8px;width:100%;" onclick="questions=[];switchTab('generate')">重新出题</button>
+    </div>`);
+}
+
+async function correctAttempt(attemptId, isCorrect, idx, errorType = '') {
+  if (!attemptId) return;
+  if (!isCorrect && !errorType) {
+    errorType = await askErrorType();
+    if (!errorType) return;
+  }
+  try {
+    const res = await fetch('/api/attempt-correction', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ attempt_id: attemptId, is_correct: isCorrect, error_type: errorType }),
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || '修正失败');
+    alert('已修正，刷新画像后生效。');
+    if (answers[idx]) {
+      answers[idx].is_correct = isCorrect;
+      answers[idx].method = 'manual_override';
+      answers[idx].error_type = isCorrect ? '' : errorType;
+    }
+  } catch (e) {
+    alert('修正失败：' + e.message);
+  }
+}
+
+async function changeErrorType(attemptId, idx) {
+  const errorType = await askErrorType();
+  if (!errorType) return;
+  await correctAttempt(attemptId, false, idx, errorType);
+}
+
+async function askErrorType() {
+  const lines = Object.entries(ERROR_TYPE_LABELS)
+    .map(([key, label], i) => `${i + 1}. ${label} (${key})`)
+    .join('\n');
+  const input = prompt(`选择错因编号：\n${lines}`);
+  if (!input) return '';
+  const keys = Object.keys(ERROR_TYPE_LABELS);
+  const n = parseInt(input, 10);
+  if (n >= 1 && n <= keys.length) return keys[n - 1];
+  if (ERROR_TYPE_LABELS[input]) return input;
+  alert('未知错因');
+  return '';
+}
+
+// Delegate quiz events
+document.addEventListener('click', (e) => {
+  if (!document.getElementById('tab-quiz').classList.contains('active')) return;
+  const opt = e.target.closest('.opt');
+  if (opt && !document.querySelector('.opts.submitted')) {
+    const oi = parseInt(opt.dataset.oi);
+    if (!answers[qIdx]) answers[qIdx] = {};
+    answers[qIdx].student_answer = labelOf(oi);
+    document.querySelectorAll('.opt').forEach(el => el.classList.remove('sel'));
+    opt.classList.add('sel');
+    const btn = document.getElementById('submitBtn');
+    if (btn) btn.disabled = false;
+    return;
+  }
+  const star = e.target.closest('.star');
+  if (star) {
+    confidence = parseInt(star.dataset.c);
+    document.querySelectorAll('.star').forEach((s, i) => s.classList.toggle('on', i < confidence));
+    return;
+  }
+});
+
+document.addEventListener('input', (e) => {
+  if (e.target.id === 'textAns') {
+    if (!answers[qIdx]) answers[qIdx] = {};
+    answers[qIdx].student_answer = e.target.value;
+    const btn = document.getElementById('submitBtn');
+    if (btn) btn.disabled = !e.target.value.trim();
+  }
+});
+
+// ═══════════════════════════════════
+// Tab 3: Profile
+// ═══════════════════════════════════
+async function loadProfile() {
+  const root = document.getElementById('profileRoot');
+  safeSetHTML(root, '<div class="loading-state">加载中...</div>');
+  try {
+    const res = await fetch('/api/profile');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const d = await res.json();
+    if (!d.ok) throw new Error(d.error || '未知错误');
+    if (d.total_attempts === 0) {
+      safeSetHTML(root, `<div class="empty-state">📭 暂无作答记录<br><span style="font-size:13px;color:#B5B0A8;">去 <a href="#" onclick="switchTab('quiz');return false;" style="color:#B8894F;">答题</a> 积累数据</span></div>`);
+      return;
+    }
+    renderProfile(d);
+  } catch(e) {
+    safeSetHTML(root, `<div class="empty-state" style="color:#B55A4A;">❌ 加载失败：${e.message}</div>`);
+  }
+}
+
+function renderProfile(d) {
+  const mastery = d.mastery_summary || {};
+  const topics = d.topics || [];
+  const rec = d.recommendation || {};
+  const errDist = d.error_distribution || {};
+  const risks = d.risk_signals || [];
+
+  let pills = '';
+  for (const [k, v] of Object.entries(mastery)) {
+    if (v > 0) pills += `<span class="pill ${k}">${ML_LABELS[k]||k} ${v}</span>`;
+  }
+
+  let html = `
+  <div class="overview">
+    <div class="stat-card"><div class="pval">${fmtPct(d.overall_accuracy)}</div><div class="plbl">整体正确率</div></div>
+    <div class="stat-card"><div class="pval">${d.total_attempts}</div><div class="plbl">总作答次数</div></div>
+    <div class="stat-card"><div class="pval">${topics.length}</div><div class="plbl">覆盖知识点</div></div>
+    <div class="stat-card">
+      <div class="pval" style="font-size:22px;">${mastery.mastered||0}<span style="font-size:14px;color:#8B8680;">/${topics.length}</span></div>
+      <div class="plbl">已掌握</div>
+      <div class="mastery-pills">${pills}</div>
+    </div>
+  </div>`;
+
+  // Topics
+  html += `<div class="card"><div class="sec-title">知识点掌握概率 · P(L) + 数据置信度</div>`;
+  if (topics.length === 0) {
+    html += '<div class="empty-state" style="padding:24px;">暂无知识点数据</div>';
+  } else {
+    for (const t of topics) {
+      const bkt = t.bkt, bandit = t.bandit;
+      const pL = bkt ? bkt.p_mastery : 0;
+      const barColor = pLColor(pL);
+      const confLevel = t.confidence_level || 'low';
+      const confLabel = t.confidence_label || '数据不足';
+      const confReason = t.confidence_reason || '';
+      const betaKey = domKey(`${t.section_id}_${t.topic || ''}`);
+      html += `<div class="topic-row">
+        <div class="topic-name">
+          <span class="tsid">${esc(t.section_id)}</span>${esc(t.topic) || esc(t.section_id)}
+          ${t.dominant_error_type?`<span class="terr">${esc(t.dominant_error_type)}</span>`:''}
+          <span class="ml-badge ${t.mastery_level}">${ML_LABELS[t.mastery_level]||t.mastery_level}</span>
+          <div class="topic-meta">样本 ${t.evidence_count ?? (bkt?bkt.total_attempts:0)} 次
+            <span class="conf-badge ${confLevel}" title="${esc(confReason)}">${esc(confLabel)}</span>
+          </div>
+        </div>
+        <div class="pl-bar-wrap">
+          <div class="pl-bar-bg"><div class="pl-bar-fill" style="width:${Math.round(pL*100)}%;background:${barColor};"></div></div>
+          <div class="pl-bar-label">P(L)=${fmtPct(pL)} (${bkt?bkt.correct_count:0}/${bkt?bkt.total_attempts:0})</div>
+        </div>`;
+      if (bandit) {
+        const betaId = 'bt_' + betaKey;
+        html += `<div class="beta-mini"><canvas id="${betaId}" width="80" height="32"></canvas>
+          <div class="beta-params">α=${bandit.alpha.toFixed(1)}<br>β=${bandit.beta.toFixed(1)}</div></div>`;
+      } else {
+        html += '<div></div>';
+      }
+      html += '</div>';
+    }
+  }
+  html += '</div>';
+
+  // Recommendation
+  html += `<div class="card"><div class="sec-title">推荐练习计划</div>`;
+  if (rec.items && rec.items.length > 0) {
+    html += `<table class="rec-table"><thead><tr><th>#</th><th>章节</th><th>P(L)</th><th>难度</th><th>题型</th><th>题数</th><th>推荐原因</th></tr></thead><tbody>`;
+    rec.items.forEach((item, i) => {
+      html += `<tr><td style="color:#B8894F;font-weight:600;">${i+1}</td>
+        <td>${esc(item.section_id)} ${esc(item.topic||'')}</td>
+        <td>${fmtPct(item.p_mastery)}</td>
+        <td>${DIFF_LABELS[item.difficulty]||item.difficulty}</td>
+        <td>${(item.question_types||[]).join(', ')}</td>
+        <td>${item.recommended_count}</td>
+        <td class="reason-cell">${esc(item.reason_text || '-')}</td></tr>`;
+    });
+    html += `</tbody></table>`;
+    html += `<div class="rec-reason">📋 ${esc(rec.reason)}（共 ${rec.target_count} 题）</div>`;
+  } else {
+    html += '<div class="empty-state" style="padding:24px;">暂无推荐数据</div>';
+  }
+  html += '</div>';
+
+  // Error + Risk
+  html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">';
+  html += '<div class="card"><div class="sec-title">错因分布</div>';
+  const errEntries = Object.entries(errDist);
+  if (errEntries.length > 0) {
+    const maxCnt = Math.max(...errEntries.map(e => e[1]));
+    for (const [label, cnt] of errEntries) {
+      html += `<div class="err-bar"><span class="err-label">${esc(label)}</span><div class="err-track"><div class="err-fill" style="width:${maxCnt>0?Math.round(cnt/maxCnt*100):0}%;"></div></div><span class="err-cnt">${cnt} 次</span></div>`;
+    }
+  } else { html += '<div class="empty-state" style="padding:24px;">暂无错因标签</div>'; }
+  html += '</div>';
+  html += '<div class="card"><div class="sec-title">风险信号</div>';
+  if (risks.length > 0) {
+    for (const r of risks) html += `<div class="risk-item">⚠️ ${esc(r)}</div>`;
+  } else { html += '<div class="empty-state" style="padding:24px;">✅ 无异常信号</div>'; }
+  html += '</div></div>';
+
+  // ── Recent Sessions ──
+  const sessions = d.recent_sessions || [];
+  if (sessions.length > 0) {
+    html += `<div class="card" style="margin-top:16px;"><div class="sec-title">最近练习记录</div>`;
+    html += `<table class="rec-table" style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="color:#8B8680;text-align:left;border-bottom:1px solid rgba(0,0,0,0.06);">
+      <th style="padding:8px 6px;">#</th><th>模式</th><th>时间</th><th>题数</th><th>正确率</th><th>效果</th></tr></thead><tbody>`;
+    sessions.forEach((s, i) => {
+      const acc = s.accuracy != null ? Math.round(s.accuracy * 100) + '%' : '-';
+      const effect = s.effect_summary || '-';
+      const modeLabel = {practice:'训练',diagnostic:'摸底',exam:'考试',historical:'历史'}[s.mode] || s.mode;
+      html += `<tr style="border-bottom:1px solid rgba(0,0,0,0.03);">
+        <td style="padding:6px;color:#B8894F;font-weight:500;">${i+1}</td>
+        <td style="padding:6px;">${modeLabel}</td>
+        <td style="padding:6px;font-size:11px;color:#8B8680;">${esc(s.ended_at || s.started_at || '')}</td>
+        <td style="padding:6px;">${s.attempt_count}</td>
+        <td style="padding:6px;font-weight:500;">${acc}</td>
+        <td style="padding:6px;font-size:12px;color:#5A5650;">${esc(effect)}</td></tr>`;
+    });
+    html += `</tbody></table></div>`;
+  }
+
+  // ── Trend Summary ──
+  const trend = d.trend_summary || {};
+  if (trend.overall_trend && trend.overall_trend !== 'insufficient_data') {
+    html += `<div class="card" style="margin-top:16px;"><div class="sec-title">最近趋势</div>`;
+    const trendLabels = { improving: '📈 提升中', declining: '📉 下降中', stable: '➡️ 稳定' };
+    html += `<div style="margin-bottom:10px;font-size:14px;color:#2E2C29;">整体趋势：${trendLabels[trend.overall_trend] || trend.overall_trend}（近 ${trend.session_count || '?'} 次练习）</div>`;
+    const sections = [
+      { label: '提升知识点', items: trend.improving_topics || [], color: '#4A7C59' },
+      { label: '下降知识点', items: trend.declining_topics || [], color: '#B55A4A' },
+      { label: '卡住知识点', items: trend.stalled_topics || [], color: '#D4956A' },
+    ];
+    sections.forEach(s => {
+      if (!s.items.length) return;
+      html += `<div style="margin-bottom:6px;font-size:12px;font-weight:500;color:#5A5650;">${s.label}</div>`;
+      s.items.forEach(t => {
+        const deltaStr = (t.avg_delta > 0 ? '+' : '') + (t.avg_delta * 100).toFixed(1) + '%';
+        html += `<div style="display:flex;gap:10px;padding:3px 0;font-size:13px;color:#3A3632;">
+          <span style="font-family:'SF Mono',monospace;font-size:11px;color:#8B8680;">${esc(t.section_id)}</span>
+          <span style="flex:1;">${esc(t.trend || '')}</span>
+          <span style="font-family:'SF Mono',monospace;font-size:12px;color:${s.color};">${deltaStr}</span></div>`;
+      });
+    });
+    html += `</div>`;
+  }
+
+  // ── Memory Facts ──
+  const facts = d.memory_facts || [];
+  if (facts.length > 0) {
+    html += `<div class="card" style="margin-top:16px;"><div class="sec-title">长期记忆</div>`;
+    const typeIcons = { weak_topic: '⚠️', trend: '📊', error_pattern: '🔄', risk: '🚨', strategy_effect: '💡' };
+    facts.forEach(f => {
+      const confidence = Math.round(f.confidence * 100);
+      const icon = typeIcons[f.memory_type] || '📌';
+      let desc = '';
+      if (f.memory_type === 'weak_topic') {
+        desc = `${esc(f.memory_key)} 长期薄弱`;
+      } else if (f.memory_type === 'trend') {
+        desc = `${esc(f.memory_key)}`;
+      } else if (f.memory_type === 'error_pattern') {
+        desc = `${esc(f.memory_key)} 频发`;
+      } else {
+        desc = JSON.stringify(f.value_json || f.memory_key);
+      }
+      html += `<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid rgba(0,0,0,0.03);font-size:13px;color:#3A3632;">
+        <span style="flex-shrink:0;">${icon}</span>
+        <span style="flex:1;">${desc}</span>
+        <span class="badge" style="font-size:10px;background:rgba(184,137,79,0.1);border-color:transparent;">${confidence}%</span></div>`;
+    });
+    html += `</div>`;
+  }
+
+  safeSetHTML(document.getElementById('profileRoot'), html);
+
+  // Draw Beta canvases
+  for (const t of topics) {
+    const betaKey = domKey(`${t.section_id}_${t.topic || ''}`);
+    if (t.bandit) drawBeta('bt_' + betaKey, t.bandit.alpha, t.bandit.beta);
+  }
+}
+
+
+// ═══════════════════════════════════
+// Exam history
+// ═══════════════════════════════════
+async function loadExamHistory() {
+  var root = document.getElementById('examHistory');
+  if (!root) return;
+  try {
+    var res = await fetch('/api/exams');
+    var exams = await res.json();
+    if (!exams.length) { root.innerHTML = '<div style=\"color:#8B8680;font-size:13px;\">暂无历史试卷</div>'; return; }
+    var html = '';
+    exams.slice(0, 10).forEach(function(e) {
+      var ts = e.timestamp;
+      var label = ts ? ts.slice(0,4)+'-'+ts.slice(4,6)+'-'+ts.slice(6,8)+' '+ts.slice(9,11)+':'+ts.slice(11,13) : e.filename;
+      html += `<div class="exam-item" style="padding:8px 0;border-bottom:1px solid rgba(0,0,0,0.05);">
+        <span style="cursor:pointer;color:#B8894F;font-weight:500;" data-file="${e.filename}" onclick="toggleExam(this.dataset.file)">${label} - ${e.count} 题</span>
+        <div id="exam_${e.filename}" style="display:none;margin-top:8px;"></div>
+      </div>`;
+    });
+    root.innerHTML = html;
+  } catch(e) { root.innerHTML = '<div style=\"color:#B55A4A;font-size:13px;\">加载失败</div>'; }
+}
+
+async function toggleExam(filename) {
+  var el = document.getElementById('exam_' + filename);
+  if (!el) return;
+  if (el.style.display === 'none') {
+    el.style.display = 'block';
+    if (!el.dataset.loaded) {
+      el.innerHTML = '<div class=\"loading-state\">加载中...</div>';
+      try {
+        var res = await fetch('/api/exams/' + encodeURIComponent(filename));
+        var qs = await res.json();
+        var html = '';
+        qs.forEach(function(q, i) {
+          var opts = q.options && q.options.length ? q.options.map(function(o) { return '<span style=\"display:inline-block;margin:2px 8px 2px 0;\">' + esc(o) + '</span>'; }).join('') : '';
+          html += '<div style=\"margin-bottom:12px;padding:10px;background:rgba(255,255,255,0.3);border-radius:10px;\">'
+            + '<div style=\"font-weight:600;margin-bottom:4px;\">' + (i+1) + '. [' + esc(q.question_type||'') + '] ' + renderLatex(esc(q.stem||'')) + '</div>'
+            + (opts ? '<div style=\"font-size:13px;color:#8B8680;margin-bottom:4px;\">' + opts + '</div>' : '')
+            + '<div style=\"font-size:12px;color:#4A7C59;\">答案：' + renderLatex(esc(q.correct_answer||'')) + '</div>'
+            + (q.explanation ? '<div style=\"font-size:12px;color:#8B8680;\">解析：' + renderLatex(esc(q.explanation)) + '</div>' : '')
+            + '<div style=\"font-size:11px;color:#B5B0A8;\">难度：' + esc(q.difficulty||'') + ' · 章节：' + esc(q.source||'') + ' ' + esc(q.topic||'') + '</div>'
+            + '</div>';
+        });
+        el.innerHTML = html;
+        el.dataset.loaded = '1';
+      } catch(e) { el.innerHTML = '<div style=\"color:#B55A4A;\">加载失败</div>'; }
+    }
+  } else { el.style.display = 'none'; }
+}
+
+loadAnalysisReports();
+loadExamHistory();
+var _initTab = location.hash ? location.hash.slice(1) : "generate";
+if (['quiz', 'profile'].includes(_initTab)) {
+  switchTab(_initTab, false);
+} else {
+  fetchQuestions();
+}
