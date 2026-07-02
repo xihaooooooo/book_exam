@@ -6,3 +6,9 @@ __pycache__/
 cache/
 node_modules/
 handwrite/
+uploads/
+analysis/
+evals/generated/
+evals/reports/index.json
+evals/reports/*_20*.json
+evals/reports/*_20*.md
