@@ -16,11 +16,22 @@
 
 <div class="wrap">
 
+  <div class="book-bar">
+    <div class="book-current">
+      <span class="book-label">当前教材</span>
+      <select id="bookSelect" class="book-select" onchange="changeBook(this.value)">
+        <option value="">加载中...</option>
+      </select>
+    </div>
+    <button class="book-add-btn" onclick="openBookDialog();return false;">＋ 添加教材</button>
+  </div>
+
   <!-- Tab bar -->
   <div class="tab-bar">
     <button class="tab-btn active" data-tab="generate" onclick="switchTab('generate')">📝 出题</button>
     <button class="tab-btn" data-tab="quiz" onclick="switchTab('quiz')">✏️ 答题</button>
     <button class="tab-btn" data-tab="profile" onclick="switchTab('profile')">📊 画像</button>
+    <button class="tab-btn" data-tab="evals" onclick="switchTab('evals')">✅ 评测</button>
   </div>
 
   <!-- ═══════ Tab: 出题 ═══════ -->
@@ -109,6 +120,35 @@
   <!-- ═══════ Tab: 画像 ═══════ -->
   <div id="tab-profile" class="tab-content">
     <div id="profileRoot"></div>
+  </div>
+
+  <!-- ═══════ Tab: 评测 ═══════ -->
+  <div id="tab-evals" class="tab-content">
+    <div id="evalRoot"></div>
+  </div>
+</div>
+
+<div id="bookDialog" class="book-dialog" style="display:none;">
+  <div class="book-dialog-panel">
+    <div class="book-dialog-head">
+      <div>
+        <div class="book-dialog-title">添加教材</div>
+      </div>
+      <button class="book-close" onclick="closeBookDialog();return false;">×</button>
+    </div>
+    <div class="book-form">
+      <label>教材名称</label>
+      <input type="text" id="newBookTitle" placeholder="例如：嵌入式实时操作系统" oninput="syncBookIdFromTitle()">
+      <label>书籍 ID</label>
+      <input type="text" id="newBookId" placeholder="例如：ucos" oninput="markBookIdEdited()">
+      <label>PDF 文件</label>
+      <input type="file" id="newBookPdf" accept=".pdf,application/pdf">
+    </div>
+    <div id="bookUploadStatus" class="book-upload-status"></div>
+    <div class="book-dialog-actions">
+      <button class="btn btn-next" onclick="closeBookDialog();return false;">取消</button>
+      <button class="btn btn-submit" id="bookUploadBtn" onclick="uploadBook();return false;">开始上传并解析</button>
+    </div>
   </div>
 </div>
 

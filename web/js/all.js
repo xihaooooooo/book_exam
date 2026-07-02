@@ -1,4 +1,8 @@
 const STUDENT_ID = "default";
+let BOOKS = [];
+let CURRENT_BOOK_ID = (() => {
+  try { return localStorage.getItem('current_book_id') || ''; } catch(e) { return ''; }
+})();
 let CURRENT_SESSION_ID = (() => {
   try { const v = sessionStorage.getItem('current_session_id'); return v ? parseInt(v) : null; } catch(e) { return null; }
 })();
@@ -46,6 +50,17 @@ function fmtPct(v) { return Math.round((v||0)*100)+'%'; }
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function domKey(s) { return Array.from(String(s||'')).map(c => c.charCodeAt(0).toString(36)).join('_'); }
 function pLColor(p) { if(p<0.3)return'#B55A4A'; if(p<0.5)return'#D4956A'; if(p<0.7)return'#C49A5E'; if(p<0.85)return'#8AAA6A'; return'#4A7C59'; }
+function bookParam() { return CURRENT_BOOK_ID ? '?book_id=' + encodeURIComponent(CURRENT_BOOK_ID) : ''; }
+function withBookPayload(payload) { return Object.assign({ book_id: CURRENT_BOOK_ID }, payload || {}); }
+function clearBookScopedState() {
+  questions = []; answers = []; qIdx = 0; qStartTs = Date.now(); confidence = 3;
+  CURRENT_SESSION_ID = null;
+  try { sessionStorage.removeItem('current_session_id'); } catch(e) {}
+  const quizRoot = document.getElementById('quizRoot');
+  if (quizRoot) quizRoot.innerHTML = '';
+  const profileRoot = document.getElementById('profileRoot');
+  if (profileRoot) profileRoot.innerHTML = '';
+}
 
 // ═══════════════════════════════════
 // Beta PDF canvas
@@ -82,10 +97,143 @@ function lgamma(x){
 }
 
 // ═══════════════════════════════════
+// Book switcher
+// ═══════════════════════════════════
+let bookIdEdited = false;
+
+function makeBookId(title) {
+  let base = String(title || '').toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '');
+  if (!base) base = 'book-' + Date.now().toString(36);
+  return base.slice(0, 48);
+}
+
+async function loadBooks(preferredId = '') {
+  const res = await fetch('/api/books');
+  const data = await res.json();
+  if (!data.ok) throw new Error(data.error || '书籍列表读取失败');
+  BOOKS = data.books || [];
+  const ids = BOOKS.map(b => b.book_id);
+  let nextId = preferredId || CURRENT_BOOK_ID || data.default_book_id || (BOOKS[0] && BOOKS[0].book_id) || '';
+  if (nextId && !ids.includes(nextId)) nextId = data.default_book_id || ids[0] || '';
+  CURRENT_BOOK_ID = nextId;
+  try { if (CURRENT_BOOK_ID) localStorage.setItem('current_book_id', CURRENT_BOOK_ID); } catch(e) {}
+  renderBookSelect();
+}
+
+function renderBookSelect() {
+  const sel = document.getElementById('bookSelect');
+  if (!sel) return;
+  if (!BOOKS.length) {
+    sel.innerHTML = '<option value="">暂无教材</option>';
+    return;
+  }
+  sel.innerHTML = BOOKS.map(b => {
+    const status = b.has_sections ? '' : '（未解析）';
+    return `<option value="${esc(b.book_id)}" ${b.book_id === CURRENT_BOOK_ID ? 'selected' : ''}>${esc(b.title || b.book_id)}${status}</option>`;
+  }).join('');
+}
+
+async function changeBook(bookId, force = false) {
+  if (!bookId || (!force && bookId === CURRENT_BOOK_ID)) return;
+  CURRENT_BOOK_ID = bookId;
+  try { localStorage.setItem('current_book_id', CURRENT_BOOK_ID); } catch(e) {}
+  clearBookScopedState();
+  renderBookSelect();
+  await fetchQuestions();
+  await loadAnalysisReports();
+  await loadExamHistory();
+  if (document.getElementById('tab-quiz').classList.contains('active')) initQuiz();
+  if (document.getElementById('tab-profile').classList.contains('active')) loadProfile();
+}
+
+function openBookDialog() {
+  bookIdEdited = false;
+  const dialog = document.getElementById('bookDialog');
+  const title = document.getElementById('newBookTitle');
+  const bookId = document.getElementById('newBookId');
+  const pdf = document.getElementById('newBookPdf');
+  const status = document.getElementById('bookUploadStatus');
+  const btn = document.getElementById('bookUploadBtn');
+  if (title) title.value = '';
+  if (bookId) bookId.value = '';
+  if (pdf) pdf.value = '';
+  if (status) status.textContent = '';
+  if (btn) btn.disabled = false;
+  if (dialog) dialog.style.display = 'grid';
+  setTimeout(() => { if (title) title.focus(); }, 30);
+}
+
+function closeBookDialog() {
+  const dialog = document.getElementById('bookDialog');
+  if (dialog) dialog.style.display = 'none';
+}
+
+function syncBookIdFromTitle() {
+  if (bookIdEdited) return;
+  const title = document.getElementById('newBookTitle');
+  const bookId = document.getElementById('newBookId');
+  if (title && bookId) bookId.value = makeBookId(title.value);
+}
+
+function markBookIdEdited() {
+  bookIdEdited = true;
+}
+
+async function uploadBook() {
+  const titleEl = document.getElementById('newBookTitle');
+  const idEl = document.getElementById('newBookId');
+  const fileEl = document.getElementById('newBookPdf');
+  const status = document.getElementById('bookUploadStatus');
+  const btn = document.getElementById('bookUploadBtn');
+  const file = fileEl && fileEl.files && fileEl.files[0];
+  const title = (titleEl && titleEl.value.trim()) || (file ? file.name.replace(/\.pdf$/i, '') : '');
+  const bookId = makeBookId((idEl && idEl.value.trim()) || title);
+
+  if (!title) { status.textContent = '请填写教材名称'; return; }
+  if (!file) { status.textContent = '请选择 PDF 文件'; return; }
+  if (!file.name.toLowerCase().endsWith('.pdf')) { status.textContent = '只支持 PDF 文件'; return; }
+
+  const fd = new FormData();
+  fd.append('title', title);
+  fd.append('book_id', bookId);
+  fd.append('pdf', file);
+
+  btn.disabled = true;
+  status.textContent = '上传中...';
+  try {
+    const res = await fetch('/api/books/upload', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || '上传失败');
+    status.textContent = '已上传，等待解析...';
+    const job = await pollBookJob(data.job_id);
+    status.textContent = `解析完成：${job.title || title}`;
+    await loadBooks(job.book_id || data.book_id);
+    await changeBook(job.book_id || data.book_id, true);
+    setTimeout(closeBookDialog, 700);
+  } catch (e) {
+    status.textContent = '失败：' + e.message;
+    btn.disabled = false;
+  }
+}
+
+async function pollBookJob(jobId) {
+  while (true) {
+    await new Promise(resolve => setTimeout(resolve, 1800));
+    const res = await fetch('/api/books/jobs/' + encodeURIComponent(jobId));
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || '解析任务读取失败');
+    const status = document.getElementById('bookUploadStatus');
+    if (status) status.textContent = data.stage || data.status || '解析中...';
+    if (data.status === 'done') return data;
+    if (data.status === 'failed') throw new Error(data.error || '解析失败');
+  }
+}
+
+// ═══════════════════════════════════
 // Tab switching
 // ═══════════════════════════════════
 function switchTab(name, updateHash = true) {
-  if (!['generate', 'quiz', 'profile'].includes(name)) name = 'generate';
+  if (!['generate', 'quiz', 'profile', 'evals'].includes(name)) name = 'generate';
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
   document.querySelectorAll('.tab-content').forEach(c => c.classList.toggle('active', c.id === 'tab-' + name));
   if (updateHash && location.hash !== '#' + name) {
@@ -93,6 +241,7 @@ function switchTab(name, updateHash = true) {
   }
   if (name === 'quiz') initQuiz();
   if (name === 'profile') loadProfile();
+  if (name === 'evals') loadEvalCenter();
 }
 
 // ═══════════════════════════════════
@@ -118,7 +267,7 @@ function selectMode(mode) {
     });
     document.getElementById('genCount').value = 0;
     document.getElementById('countHint').textContent = '0=自动（章数×2，≤30）';
-  } else if (exam) {
+  } else if (examOnly) {
     document.getElementById('countHint').textContent = '0=自动（6-12 自适应）';
   } else {
     document.getElementById('countHint').textContent = '0=自动（知识点×3，≤20）';
@@ -137,7 +286,7 @@ function toggleDiff(el) {
 
 async function loadAnalysisReports() {
   try {
-    const res = await fetch('/api/analysis-reports');
+    const res = await fetch('/api/analysis-reports' + bookParam());
     if (!res.ok) return;
     const reports = await res.json();
     const sel = document.getElementById('genAnalysis');
@@ -167,7 +316,7 @@ function uploadExamFile(input) {
     fetch('/api/analyze-exam', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ filename: file.name, data_base64: b64 }),
+      body: JSON.stringify(withBookPayload({ filename: file.name, data_base64: b64 })),
     }).then(r => r.json()).then(data => {
       if (data.ok) {
         status.textContent = `✅ ${data.filename}（${data.questions}题）`;
@@ -211,7 +360,7 @@ function doGenerate() {
   fetch('/api/generate', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
+    body: JSON.stringify(withBookPayload({
       mode: genMode,
       count: parseInt(document.getElementById('genCount').value) || 0,
       types: selTypes.join(','),
@@ -219,12 +368,16 @@ function doGenerate() {
       focus: document.getElementById('genFocus').value.trim(),
       student_id: STUDENT_ID,
       analysis_report: analysisReport,
-    }),
+    })),
   }).then(r => r.json()).then(data => {
     btn.disabled = false;
     if (data.ok) {
       CURRENT_SESSION_ID = data.session_id || null;
       if (CURRENT_SESSION_ID) { try { sessionStorage.setItem('current_session_id', CURRENT_SESSION_ID); } catch(e) {} }
+      questions = [];
+      answers = [];
+      fetchQuestions();
+      loadExamHistory();
       safeSetHTML(status, `<div class="gen-result">
         <div class="big">✅ ${data.count} 题</div>
         <div style="color:#8B8680;margin:8px 0;">模式：${data.mode} · 已加载到答题区</div>
@@ -245,8 +398,12 @@ function doGenerate() {
 
 async function fetchQuestions() {
   try {
-    const res = await fetch('/api/questions');
-    if (res.ok) { questions = await res.json(); return; }
+    const res = await fetch('/api/questions' + bookParam());
+    if (res.ok) {
+      const data = await res.json();
+      questions = Array.isArray(data) ? data : [];
+      return;
+    }
   } catch(e) {}
   questions = [];
 }
@@ -402,6 +559,7 @@ async function submitExam() {
   const payload = {
     student_id: STUDENT_ID,
     session_id: CURRENT_SESSION_ID,
+    book_id: CURRENT_BOOK_ID,
     answers: questions.map((q, i) => ({
       question_type: q.question_type, student_answer: (answers[i] && answers[i].student_answer) || '',
       correct_answer: q.correct_answer, stem: q.stem, explanation: q.explanation || '',
@@ -494,7 +652,7 @@ async function correctAttempt(attemptId, isCorrect, idx, errorType = '') {
     const res = await fetch('/api/attempt-correction', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ attempt_id: attemptId, is_correct: isCorrect, error_type: errorType }),
+      body: JSON.stringify(withBookPayload({ attempt_id: attemptId, is_correct: isCorrect, error_type: errorType })),
     });
     const data = await res.json();
     if (!data.ok) throw new Error(data.error || '修正失败');
@@ -529,37 +687,6 @@ async function askErrorType() {
   return '';
 }
 
-// Delegate quiz events
-document.addEventListener('click', (e) => {
-  if (!document.getElementById('tab-quiz').classList.contains('active')) return;
-  const opt = e.target.closest('.opt');
-  if (opt && !document.querySelector('.opts.submitted')) {
-    const oi = parseInt(opt.dataset.oi);
-    if (!answers[qIdx]) answers[qIdx] = {};
-    answers[qIdx].student_answer = labelOf(oi);
-    document.querySelectorAll('.opt').forEach(el => el.classList.remove('sel'));
-    opt.classList.add('sel');
-    const btn = document.getElementById('submitBtn');
-    if (btn) btn.disabled = false;
-    return;
-  }
-  const star = e.target.closest('.star');
-  if (star) {
-    confidence = parseInt(star.dataset.c);
-    document.querySelectorAll('.star').forEach((s, i) => s.classList.toggle('on', i < confidence));
-    return;
-  }
-});
-
-document.addEventListener('input', (e) => {
-  if (e.target.id === 'textAns') {
-    if (!answers[qIdx]) answers[qIdx] = {};
-    answers[qIdx].student_answer = e.target.value;
-    const btn = document.getElementById('submitBtn');
-    if (btn) btn.disabled = !e.target.value.trim();
-  }
-});
-
 // ═══════════════════════════════════
 // Tab 3: Profile
 // ═══════════════════════════════════
@@ -567,7 +694,7 @@ async function loadProfile() {
   const root = document.getElementById('profileRoot');
   safeSetHTML(root, '<div class="loading-state">加载中...</div>');
   try {
-    const res = await fetch('/api/profile');
+    const res = await fetch('/api/profile' + bookParam());
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const d = await res.json();
     if (!d.ok) throw new Error(d.error || '未知错误');
@@ -763,14 +890,259 @@ function renderProfile(d) {
 
 
 // ═══════════════════════════════════
+// Tab 4: Eval center
+// ═══════════════════════════════════
+let evalRuns = [];
+let evalCurrentRunId = '';
+
+async function loadEvalCenter(runId = '') {
+  const root = document.getElementById('evalRoot');
+  if (!root) return;
+  safeSetHTML(root, '<div class="card loading-state">加载评测报告中...</div>');
+  try {
+    const listRes = await fetch('/api/evals');
+    const listData = await listRes.json();
+    if (!listData.ok) throw new Error(listData.error || '评测列表读取失败');
+    evalRuns = listData.runs || [];
+    if (!evalRuns.length) {
+      safeSetHTML(root, '<div class="card empty-state">暂无评测报告</div>');
+      return;
+    }
+    const selectedRunId = runId || evalCurrentRunId || evalRuns[0].run_id;
+    await loadEvalRun(selectedRunId, false);
+  } catch (e) {
+    safeSetHTML(root, `<div class="card empty-state" style="color:#B55A4A;">加载失败：${esc(e.message)}</div>`);
+  }
+}
+
+async function loadEvalRun(runId, keepList = true) {
+  const root = document.getElementById('evalRoot');
+  if (!root || !runId) return;
+  evalCurrentRunId = runId;
+  if (!keepList || !evalRuns.length) {
+    const listRes = await fetch('/api/evals');
+    const listData = await listRes.json();
+    evalRuns = listData.runs || [];
+  }
+  safeSetHTML(root, '<div class="card loading-state">加载评测详情中...</div>');
+  try {
+    const res = await fetch('/api/evals/' + encodeURIComponent(runId));
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || '评测报告读取失败');
+    renderEvalCenter(data.report, data.run || {});
+  } catch (e) {
+    safeSetHTML(root, `<div class="card empty-state" style="color:#B55A4A;">加载失败：${esc(e.message)}</div>`);
+  }
+}
+
+function renderEvalCenter(report, run) {
+  const root = document.getElementById('evalRoot');
+  const metrics = report.metrics || [];
+  const meta = report.metadata || {};
+  const sections = meta.sections || {};
+  const diffs = meta.metric_diffs || run.diffs || [];
+  const failures = report.failures || [];
+  const scoreMetric = metricByName(metrics, 'overall_score');
+  const generationMetric = metricByName(metrics, 'generation_score');
+  const judgeMetric = metricByName(metrics, 'judge_score');
+  const recommendationMetric = metricByName(metrics, 'recommendation_score');
+  const overall = scoreMetric ? scoreMetric.value : (run.score || 0);
+  const regressions = diffs.filter(d => d.status === 'regressed');
+  const improvements = diffs.filter(d => d.status === 'improved');
+
+  const selectedOptions = evalRuns.map(r => {
+    const label = `${formatRunTime(r.created_at)} · ${formatMetricValue(r.score || 0)}`;
+    return `<option value="${esc(r.run_id)}" ${r.run_id === report.run_id ? 'selected' : ''}>${esc(label)}</option>`;
+  }).join('');
+
+  let html = `
+    <div class="card">
+      <div class="eval-topline">
+        <div>
+          <div class="eval-title">评测中心</div>
+          <div class="eval-subtitle">读取本地 evals/reports 报告，展示完整评测、回归对比和失败样本。</div>
+        </div>
+        <div class="eval-actions">
+          <select class="eval-select" onchange="loadEvalRun(this.value)">${selectedOptions}</select>
+          <button class="mini-action" onclick="loadEvalCenter(evalCurrentRunId)">刷新</button>
+        </div>
+      </div>
+      <div class="eval-hero">
+        <div class="score-ring" style="--score-deg:${Math.round((overall || 0) * 360)}deg;">
+          <div class="score-inner">
+            <div class="score-value">${formatMetricValue(overall)}</div>
+            <div class="score-label">overall</div>
+          </div>
+        </div>
+        <div>
+          <div class="eval-score-grid">
+            ${renderEvalScoreItem('出题', generationMetric)}
+            ${renderEvalScoreItem('判题', judgeMetric)}
+            ${renderEvalScoreItem('推荐', recommendationMetric)}
+          </div>
+          <div class="eval-meta-line">
+            <span class="eval-chip">Run ${esc(report.run_id || '')}</span>
+            <span class="eval-chip">${esc(formatRunTime(report.created_at || run.created_at))}</span>
+            <span class="eval-chip">${failures.length} 个失败项</span>
+            <span class="eval-chip">${improvements.length} 个提升</span>
+            <span class="eval-chip">${regressions.length} 个回退</span>
+          </div>
+          <div class="eval-subtitle" style="margin-top:12px;">${esc(report.summary || run.summary || '')}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="eval-section-grid">
+      ${renderEvalSection('generation', '出题质量', sections.generation)}
+      ${renderEvalSection('judge', '判题质量', sections.judge)}
+      ${renderEvalSection('recommendation', '推荐质量', sections.recommendation)}
+    </div>
+
+    <div class="card">
+      <div class="sec-title">核心指标</div>
+      ${renderMetricTable(metrics)}
+    </div>
+
+    <div class="card">
+      <div class="sec-title">指标回归</div>
+      ${renderDiffTable(diffs)}
+    </div>
+
+    <div class="card">
+      <div class="sec-title">失败样本</div>
+      ${renderFailureList(failures)}
+    </div>
+
+    <div class="card">
+      <div class="sec-title">历史运行</div>
+      ${renderEvalHistory()}
+    </div>
+  `;
+
+  safeSetHTML(root, html);
+}
+
+function metricByName(metrics, name) {
+  return (metrics || []).find(m => m.name === name);
+}
+
+function renderEvalScoreItem(label, metric) {
+  const value = metric ? metric.value : 0;
+  const passed = !metric || metric.passed;
+  return `<div class="eval-score-item">
+    <div class="label">${esc(label)} ${passed ? '<span class="status-pill pass">PASS</span>' : '<span class="status-pill fail">FAIL</span>'}</div>
+    <div class="value">${formatMetricValue(value)}</div>
+  </div>`;
+}
+
+function renderEvalSection(key, title, section) {
+  const metrics = (section && section.metrics) || [];
+  const passed = metrics.filter(m => m.passed).length;
+  const total = metrics.length;
+  const score = total ? passed / total : 0;
+  return `<div class="eval-section">
+    <div class="name">${esc(title)}</div>
+    <div class="status">${formatMetricValue(score)}</div>
+    <div class="summary">${esc((section && section.summary) || '未运行')}</div>
+    <div class="eval-meta-line" style="margin-top:10px;">
+      <span class="eval-chip">${passed}/${total} 指标</span>
+      <span class="eval-chip">${(section && section.failure_count) || 0} 失败</span>
+    </div>
+  </div>`;
+}
+
+function renderMetricTable(metrics) {
+  if (!metrics || !metrics.length) return '<div class="empty-state" style="padding:24px;">暂无指标</div>';
+  let rows = metrics.map(m => `<tr>
+    <td><span class="metric-name">${esc(m.name)}</span></td>
+    <td>${formatMetricValue(m.value)}</td>
+    <td>${m.threshold == null ? '-' : formatMetricValue(m.threshold)}</td>
+    <td><span class="status-pill ${m.passed ? 'pass' : 'fail'}">${m.passed ? 'PASS' : 'FAIL'}</span></td>
+    <td>${esc(m.detail || '')}</td>
+  </tr>`).join('');
+  return `<div class="eval-table-wrap"><table class="eval-table">
+    <thead><tr><th>指标</th><th>数值</th><th>阈值</th><th>结果</th><th>说明</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table></div>`;
+}
+
+function renderDiffTable(diffs) {
+  if (!diffs || !diffs.length) return '<div class="empty-state" style="padding:24px;">暂无上一轮对比</div>';
+  const sorted = diffs.slice().sort((a, b) => statusWeight(a.status) - statusWeight(b.status));
+  let rows = sorted.map(d => `<tr>
+    <td><span class="metric-name">${esc(d.name)}</span></td>
+    <td>${formatMaybeMetric(d.current)}</td>
+    <td>${formatMaybeMetric(d.previous)}</td>
+    <td>${formatDelta(d.delta)}</td>
+    <td><span class="status-pill ${esc(d.status || 'stable')}">${esc(d.status || 'stable')}</span></td>
+  </tr>`).join('');
+  return `<div class="eval-table-wrap"><table class="eval-table">
+    <thead><tr><th>指标</th><th>本次</th><th>上次</th><th>变化</th><th>状态</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table></div>`;
+}
+
+function renderFailureList(failures) {
+  if (!failures || !failures.length) return '<div class="empty-state" style="padding:24px;">无失败样本</div>';
+  return `<div class="failure-list">${failures.map(f => {
+    const evidence = JSON.stringify(f.evidence || {}, null, 2);
+    return `<div class="failure-item">
+      <div class="failure-head">
+        <span>${esc(f.case_id || '')} · ${esc(f.item_id || '')}</span>
+        <span>${esc(f.reason || '')}</span>
+      </div>
+      <div class="failure-evidence">${esc(evidence).slice(0, 800)}</div>
+    </div>`;
+  }).join('')}</div>`;
+}
+
+function renderEvalHistory() {
+  if (!evalRuns.length) return '<div class="empty-state" style="padding:24px;">暂无历史记录</div>';
+  return evalRuns.slice(0, 10).map(r => `<div class="history-run">
+    <div class="history-main">
+      <div class="history-id"><a href="#" onclick="loadEvalRun('${esc(r.run_id)}');return false;" style="color:#8A6538;text-decoration:none;">${esc(r.run_id)}</a></div>
+      <div class="history-summary">${esc(r.summary || '')}</div>
+    </div>
+    <div class="history-score">${formatMetricValue(r.score || 0)}</div>
+  </div>`).join('');
+}
+
+function formatMetricValue(value) {
+  if (value === '' || value == null || isNaN(Number(value))) return '-';
+  return Math.round(Number(value) * 100) + '%';
+}
+
+function formatMaybeMetric(value) {
+  if (value === '' || value == null) return '-';
+  return formatMetricValue(value);
+}
+
+function formatDelta(value) {
+  if (value === '' || value == null || isNaN(Number(value))) return '-';
+  const pct = Math.round(Number(value) * 100);
+  return (pct > 0 ? '+' : '') + pct + '%';
+}
+
+function statusWeight(status) {
+  return { regressed: 0, improved: 1, new: 2, stable: 3 }[status] ?? 4;
+}
+
+function formatRunTime(value) {
+  if (!value) return '';
+  return String(value).replace('T', ' ').slice(0, 16);
+}
+
+
+// ═══════════════════════════════════
 // Exam history
 // ═══════════════════════════════════
 async function loadExamHistory() {
   var root = document.getElementById('examHistory');
   if (!root) return;
   try {
-    var res = await fetch('/api/exams');
+    var res = await fetch('/api/exams' + bookParam());
     var exams = await res.json();
+    if (!Array.isArray(exams)) exams = [];
     if (!exams.length) { root.innerHTML = '<div style=\"color:#8B8680;font-size:13px;\">暂无历史试卷</div>'; return; }
     var html = '';
     exams.slice(0, 10).forEach(function(e) {
@@ -793,7 +1165,7 @@ async function toggleExam(filename) {
     if (!el.dataset.loaded) {
       el.innerHTML = '<div class=\"loading-state\">加载中...</div>';
       try {
-        var res = await fetch('/api/exams/' + encodeURIComponent(filename));
+        var res = await fetch('/api/exams/' + encodeURIComponent(filename) + bookParam());
         var qs = await res.json();
         var html = '';
         qs.forEach(function(q, i) {
@@ -813,11 +1185,23 @@ async function toggleExam(filename) {
   } else { el.style.display = 'none'; }
 }
 
-loadAnalysisReports();
-loadExamHistory();
-var _initTab = location.hash ? location.hash.slice(1) : "generate";
-if (['quiz', 'profile'].includes(_initTab)) {
-  switchTab(_initTab, false);
-} else {
-  fetchQuestions();
+async function initApp() {
+  try {
+    await loadBooks();
+    await loadAnalysisReports();
+    await loadExamHistory();
+    var _initTab = location.hash ? location.hash.slice(1) : "generate";
+    if (['quiz', 'profile', 'evals'].includes(_initTab)) {
+      switchTab(_initTab, false);
+    } else {
+      await fetchQuestions();
+    }
+  } catch (e) {
+    const root = document.getElementById('tab-generate');
+    if (root) {
+      root.innerHTML = '<div class="card empty-state" style="color:#B55A4A;padding:24px;">加载失败：' + esc(e.message) + '</div>';
+    }
+  }
 }
+
+initApp();

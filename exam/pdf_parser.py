@@ -4,26 +4,40 @@ import os
 import re
 import sqlite3
 
-import fitz
-
 
 class PdfParser:
     """解析 PDF 教材，TOC 树 + 正文写入 SQLite sections 表。"""
 
-    def __init__(self, pdf_path: str, db_path: str, mineru_token: str = None):
+    def __init__(
+        self,
+        pdf_path: str,
+        db_path: str,
+        mineru_token: str = None,
+        force_ocr: bool = False,
+    ):
         self.pdf_path = pdf_path
         self.db_path = db_path
         self.mineru_token = mineru_token
+        self.force_ocr = force_ocr
         self._doc = None
 
     @property
     def doc(self):
         if self._doc is None:
+            import fitz
             self._doc = fitz.open(self.pdf_path)
         return self._doc
 
     def parse(self) -> list[dict]:
         """解析 PDF，写入 SQLite，返回 TOC 列表。"""
+        if self.force_ocr:
+            if not self.mineru_token:
+                raise RuntimeError("已启用 OCR 解析，但缺少 MinerU Token")
+            print("[PDF] 已启用强制 OCR，跳过内置书签/文本目录解析")
+            toc = self._ocr_via_mineru([])
+            print(f"[PDF] 解析完成：{len(toc)} 章，{sum(len(ch['sections']) for ch in toc)} 节")
+            return toc
+
         raw_toc = self._read_toc()
 
         if raw_toc:
@@ -279,8 +293,8 @@ class PdfParser:
 
         # 写入 SQLite
         conn = sqlite3.connect(self.db_path)
-        conn.execute("DELETE FROM sections")  # 清空旧 bookmark 数据
-        conn.execute("""CREATE TABLE IF NOT EXISTS sections (
+        conn.execute("DROP TABLE IF EXISTS sections")
+        conn.execute("""CREATE TABLE sections (
             id TEXT PRIMARY KEY, chapter TEXT DEFAULT '',
             title TEXT DEFAULT '', page_start INTEGER DEFAULT 0,
             page_end INTEGER DEFAULT 0, text TEXT DEFAULT '',

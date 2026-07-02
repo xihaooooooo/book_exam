@@ -30,10 +30,7 @@ class MinerUClient:
 
     def parse_pdf(self, pdf_path: str) -> str:
         """解析整个 PDF，返回合并后的 Markdown。自动处理超过 200 页的拆分。"""
-        import fitz
-        doc = fitz.open(pdf_path)
-        total_pages = doc.page_count
-        doc.close()
+        total_pages = self._page_count(pdf_path)
 
         if total_pages <= self.PAGE_LIMIT:
             return self._parse_single(pdf_path)
@@ -126,19 +123,27 @@ class MinerUClient:
         return None
 
     def _download_markdown(self, zip_url: str) -> str:
-        """下载 ZIP 并提取 full.md（最多重试 3 次）。"""
-        for attempt in range(3):
+        """下载 ZIP 并提取 full.md。"""
+        last_error = None
+        headers = {"User-Agent": "book-exam-mineru/1.0"}
+        for attempt in range(8):
             try:
-                res = requests.get(zip_url, timeout=30)
+                res = requests.get(zip_url, headers=headers, timeout=(10, 120), stream=True)
                 res.raise_for_status()
+                chunks = []
+                for chunk in res.iter_content(chunk_size=1024 * 1024):
+                    if chunk:
+                        chunks.append(chunk)
+                content = b"".join(chunks)
                 break
             except requests.RequestException as e:
-                if attempt == 2:
-                    raise
-                print(f"    下载失败（{e}），重试...")
-                time.sleep(3)
+                last_error = e
+                print(f"    下载失败（{e}），重试 {attempt + 1}/8...")
+                time.sleep(min(5 + attempt * 3, 20))
+        else:
+            raise last_error
 
-        with zipfile.ZipFile(io.BytesIO(res.content)) as zf:
+        with zipfile.ZipFile(io.BytesIO(content)) as zf:
             for name in zf.namelist():
                 if name.endswith("full.md"):
                     return zf.read(name).decode("utf-8")
@@ -147,32 +152,55 @@ class MinerUClient:
 
     def _split_pdf(self, pdf_path: str, total_pages: int) -> list[str]:
         """将 PDF 拆分为 ≤200 页的临时文件。"""
-        import fitz
-        doc = fitz.open(pdf_path)
-        parts = []
+        try:
+            from pypdf import PdfReader, PdfWriter
 
-        for start in range(0, total_pages, self.PAGE_LIMIT):
-            end = min(start + self.PAGE_LIMIT, total_pages)
-            # 创建子文档
-            sub = fitz.open()
-            sub.insert_pdf(doc, from_page=start, to_page=end - 1)
+            reader = PdfReader(pdf_path)
+            parts = []
+            for start in range(0, total_pages, self.PAGE_LIMIT):
+                end = min(start + self.PAGE_LIMIT, total_pages)
+                writer = PdfWriter()
+                for page_idx in range(start, end):
+                    writer.add_page(reader.pages[page_idx])
 
-            suffix = f"_p{start + 1}-{end}"
-            tmp = tempfile.NamedTemporaryFile(
-                delete=False, suffix=f"{suffix}.pdf"
-            )
-            tmp.close()
-            sub.save(tmp.name)
-            sub.close()
-            parts.append(tmp.name)
-            print(f"    拆分: {tmp.name} (页 {start + 1}-{end})")
+                suffix = f"_p{start + 1}-{end}"
+                tmp = tempfile.NamedTemporaryFile(delete=False, suffix=f"{suffix}.pdf")
+                tmp.close()
+                with open(tmp.name, "wb") as f:
+                    writer.write(f)
+                parts.append(tmp.name)
+                print(f"    拆分: {tmp.name} (页 {start + 1}-{end})")
+            return parts
+        except ImportError:
+            import fitz
 
-        doc.close()
-        return parts
+            doc = fitz.open(pdf_path)
+            parts = []
+            for start in range(0, total_pages, self.PAGE_LIMIT):
+                end = min(start + self.PAGE_LIMIT, total_pages)
+                sub = fitz.open()
+                sub.insert_pdf(doc, from_page=start, to_page=end - 1)
+
+                suffix = f"_p{start + 1}-{end}"
+                tmp = tempfile.NamedTemporaryFile(delete=False, suffix=f"{suffix}.pdf")
+                tmp.close()
+                sub.save(tmp.name)
+                sub.close()
+                parts.append(tmp.name)
+                print(f"    拆分: {tmp.name} (页 {start + 1}-{end})")
+
+            doc.close()
+            return parts
 
     def _page_count(self, file_path: str) -> int:
-        import fitz
-        doc = fitz.open(file_path)
-        count = doc.page_count
-        doc.close()
-        return count
+        try:
+            from pypdf import PdfReader
+
+            return len(PdfReader(file_path).pages)
+        except ImportError:
+            import fitz
+
+            doc = fitz.open(file_path)
+            count = doc.page_count
+            doc.close()
+            return count
