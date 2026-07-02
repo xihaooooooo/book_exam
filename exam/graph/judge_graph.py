@@ -128,6 +128,10 @@ class JudgeGraph:
                 ans["is_correct"] = False
                 ans["reason"] = "未作答"
                 ans["method"] = "rule"
+                ans["error_type"] = ErrorTypeEnum.memory_gap.value
+                ans["error_evidence"] = "学生未填写答案，无法体现对该知识点的掌握。"
+                ans["error_suggestion"] = "复习题目对应知识点和标准答案，优先完成基础记忆题训练。"
+                ans["diagnosis_confidence"] = 1.0
                 continue
 
             qtype = ans.get("question_type", "")
@@ -246,7 +250,7 @@ def _call_llm(llm_client, stem, correct, given, expl, options_str, qtype, diffic
         content = result.content if hasattr(result, "content") else str(result)
     except Exception as e:
         logger.warning("LLM 判题调用失败: %s", e)
-        return JudgeResult(is_correct=(given == correct), reason="降级（LLM 异常）")
+        return _fallback_judge_result(given, correct, "降级（LLM 异常）")
 
     # 1) 结构化解析
     try:
@@ -262,7 +266,7 @@ def _call_llm(llm_client, stem, correct, given, expl, options_str, qtype, diffic
 
     # 3) 最终降级
     logger.warning("无法解析 LLM 判题输出，降级精确匹配: %s", content[:200])
-    return JudgeResult(is_correct=(given == correct), reason="降级（解析失败）")
+    return _fallback_judge_result(given, correct, "降级（解析失败）")
 
 
 def _diagnose_error_llm(llm_client, stem, correct, given, expl, options_str, qtype):
@@ -323,7 +327,10 @@ def _parse_judge_json(content: str) -> JudgeResult:
     text = _re.sub(r'"is_correct"\s*:\s*,', '"is_correct": false,', text)
     # 2) "is_correct": }  → "is_correct": false}
     text = _re.sub(r'"is_correct"\s*:\s*}', '"is_correct": false}', text)
-    # 3) 行尾缺逗号（常见）
+    # 3) reason 缺失或 null 时给出非空字符串，避免 Pydantic 拒绝已修复 JSON
+    text = _re.sub(r'"reason"\s*:\s*null', '"reason": "LLM 未提供判定理由"', text)
+    text = _re.sub(r'"reason"\s*:\s*,', '"reason": "LLM 未提供判定理由",', text)
+    # 4) 行尾缺逗号（常见）
     text = _re.sub(r'(null|"[^"]*"|\d+\.?\d*)\s*\n\s*"', r'\1,\n  "', text)
 
     # 直接解析
@@ -341,6 +348,8 @@ def _parse_judge_json(content: str) -> JudgeResult:
                 # 对代码块内也做同样修复
                 json_str = _re.sub(r'"is_correct"\s*:\s*,', '"is_correct": false,', json_str)
                 json_str = _re.sub(r'"is_correct"\s*:\s*}', '"is_correct": false}', json_str)
+                json_str = _re.sub(r'"reason"\s*:\s*null', '"reason": "LLM 未提供判定理由"', json_str)
+                json_str = _re.sub(r'"reason"\s*:\s*,', '"reason": "LLM 未提供判定理由",', json_str)
                 try:
                     return JudgeResult(**json.loads(json_str, strict=False))
                 except (json.JSONDecodeError, Exception):
@@ -352,7 +361,10 @@ def _parse_judge_json(content: str) -> JudgeResult:
 def _regex_parse_judge_result(text: str, given: str, correct: str) -> JudgeResult:
     """Regex 兜底：从非结构化文本提取判题/诊断字段。"""
     match = re.search(r"\b(true|false)\b", text, re.IGNORECASE)
-    is_correct = match and match.group(1).lower() == "true"
+    if not match:
+        raise ValueError("LLM 输出中缺少 true/false 判定")
+
+    is_correct = match.group(1).lower() == "true"
 
     reason = re.sub(r"\btrue\b|\bfalse\b", "", text, flags=re.IGNORECASE).strip(" ,.，。:\"'\n")
     if not reason:
@@ -391,6 +403,21 @@ def _regex_parse_judge_result(text: str, given: str, correct: str) -> JudgeResul
         confidence=confidence,
         evidence=evidence,
         suggestion=suggestion,
+    )
+
+
+def _fallback_judge_result(given: str, correct: str, reason: str) -> JudgeResult:
+    """Conservative fallback for unparseable LLM judge output."""
+    is_correct = _answers_equal(given, correct)
+    if is_correct:
+        return JudgeResult(is_correct=True, reason=reason)
+    return JudgeResult(
+        is_correct=False,
+        reason=reason,
+        error_type=ErrorTypeEnum.memory_gap,
+        confidence=0.5,
+        evidence=f"无法稳定解析 LLM 判题输出，按精确匹配降级；学生答案与参考答案不一致。参考答案：{correct}",
+        suggestion="复习参考答案中的关键限定条件，并重新作答同类题。",
     )
 
 

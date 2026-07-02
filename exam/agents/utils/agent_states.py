@@ -28,6 +28,7 @@ class AgentState(MessagesState):
     focus: str
     target_count: int
     allowed_types: str
+    allowed_difficulty: str
 
     # 往年试卷分析报告（--from-analysis 加载）
     analysis_report: dict | None

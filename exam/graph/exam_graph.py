@@ -56,21 +56,11 @@ class ExamGraph:
 
         initial_state = self._create_initial_state(toc, focus, target_count, allowed_types, allowed_difficulty, analysis_report, mode, db_path, student_id)
 
-        print(f"ExamGraph 开始运行, 共 {sum(len(ch.get('sections', [])) for ch in (toc or []))} 节")
-        if mode != "exam":
-            print(f"  出题模式: {mode}")
-        if focus:
-            print(f"  考试重点: {focus}")
-        if analysis_report:
-            print(f"  出题策略: 基于往年试卷分析")
-        print("请耐心等待所有题目并发生成...")
-
         final_state = graph.invoke(initial_state, {"recursion_limit": 500})
 
         all_questions = final_state.get("all_questions", [])
 
         saved_files = self._save_results(final_state)
-        print(f"生成完成！共 {len(all_questions)} 道题")
         for f in saved_files:
             print(f"  -> {f}")
 
