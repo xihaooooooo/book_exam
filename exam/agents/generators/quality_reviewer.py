@@ -29,6 +29,12 @@ def create_quality_reviewer(config: dict = None):
                 "\n- 选项合理性（选择题）：干扰项可否合理排除"
                 "\n- 答案唯一性（填空题）：答案是否唯一确定"
                 "\n- 设问质量（简答题）：是否具体可评分"
+                "\n- 公式格式：数学表达式和公式是否用 LaTeX 标记，内联公式用 $...$，块级公式用 $$...$$"
+                "\n- 如果题目出现明确的数学表达式却未用 LaTeX 标记，应判为 fail 并说明位置"
+                "\n- Mermaid 媒体：若 media.type=mermaid，content 应为 flowchart、graph TD/LR、sequenceDiagram 或 gantt 子集，且题干应引用对应 [media:id]"
+                "\n- Canvas 媒体：若 media.type=canvas，config 应包含 canvas_type；当前阶段 Canvas 只能作为只读结构预览，题目必须能用文本、选择、填空或简答作答"
+                "\n- 图文题质量：若题目带 media，题干必须明确要求根据图/结合图/观察图中信息作答，解析应说明图中依据"
+                "\n- 禁止交互作答：不得要求学生点击图、拖拽、连线、编辑画布、移动节点或在图上标注；出现这类要求应判为 fail"
                 "\n\n审核结论只有两种："
                 "\n- pass：题目完全合格"
                 "\n- fail：题目有问题，在 issues 中具体说明哪里不行"
@@ -83,4 +89,19 @@ def _format_question(q: dict) -> str:
         lines.append(f"正确答案: {q['correct_answer']}")
     if q.get("explanation"):
         lines.append(f"解析: {q['explanation']}")
+    if q.get("media"):
+        lines.append("媒体:")
+        for item in q["media"]:
+            if not isinstance(item, dict):
+                continue
+            media_id = item.get("id", "")
+            media_type = item.get("type", "")
+            desc = item.get("description") or item.get("src") or item.get("content") or ""
+            if media_type == "canvas" and not desc:
+                desc = item.get("config") or ""
+            if isinstance(desc, str) and len(desc) > 500:
+                desc = desc[:500] + "..."
+            elif not isinstance(desc, str):
+                desc = str(desc)[:500]
+            lines.append(f"- {media_id}/{media_type}: {desc}")
     return "\n".join(lines)

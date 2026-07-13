@@ -1,0 +1,89 @@
+[
+  {
+    "id": "reg_q_latex_001",
+    "question_type": "fill_blank",
+    "stem": "在任务就绪位图中，若 $y = prio >> 3$，则用于定位组内位的低 3 位可写作 ___。",
+    "correct_answer": "$prio \\& 0x07$",
+    "explanation": "优先级按高 3 位确定表项 $y$，低 3 位确定该表项中的具体位，因此答案是 $prio \\& 0x07$。",
+    "difficulty": "medium",
+    "source": "regression.latex",
+    "topic": "位图索引与优先级计算公式"
+  },
+  {
+    "id": "reg_q_image_001",
+    "question_type": "choice",
+    "stem": "根据任务状态转换图 [media:fig_task_state]，任务调用延时函数后通常会从运行态转入哪一类状态？",
+    "options": ["A. 等待态", "B. 删除态", "C. 空闲态", "D. 中断态"],
+    "correct_answer": "A",
+    "explanation": "延时函数会让当前任务等待指定节拍数，任务在延时结束前不再处于就绪或运行状态。",
+    "difficulty": "easy",
+    "source": "regression.image",
+    "topic": "任务状态转换图",
+    "media": [
+      {
+        "id": "fig_task_state",
+        "type": "image",
+        "src": "images/reg_task_state.png",
+        "description": "任务在运行态、就绪态和等待态之间转换的示意图。"
+      }
+    ]
+  },
+  {
+    "id": "reg_q_mermaid_001",
+    "question_type": "short_answer",
+    "stem": "结合信号量等待流程图 [media:diagram_sem]，说明当信号量计数为 0 时 OSSemPend 的核心处理。",
+    "correct_answer": "当计数为 0 时，当前任务不能立即获得信号量，会被放入等待队列并进入等待状态，直到其他任务或中断释放信号量后再被唤醒。",
+    "explanation": "流程图强调了计数检查、进入等待队列、任务切换和释放后唤醒这几个关键步骤。",
+    "difficulty": "medium",
+    "source": "regression.mermaid",
+    "topic": "信号量等待与释放流程",
+    "media": [
+      {
+        "id": "diagram_sem",
+        "type": "mermaid",
+        "content": "flowchart TD\n  A[调用 OSSemPend] --> B{计数值 > 0?}\n  B -->|是| C[计数减一并继续运行]\n  B -->|否| D[加入等待队列]\n  D --> E[任务切换]\n  F[OSSemPost 释放信号量] --> G[唤醒等待任务]",
+        "description": "信号量请求失败时任务进入等待队列，释放信号量后等待任务被唤醒。"
+      }
+    ]
+  },
+  {
+    "id": "reg_q_canvas_001",
+    "question_type": "choice",
+    "stem": "根据消息队列结构预览 [media:canvas_queue]，哪个节点表示实际存放消息指针的队列缓冲区？",
+    "options": ["A. OSQOut", "B. OSQStart", "C. OSQSize", "D. OSEventType"],
+    "correct_answer": "B",
+    "explanation": "结构预览中 OSQStart 指向队列缓冲区起始位置，OSQOut 是出队位置指针，OSQSize 表示容量。",
+    "difficulty": "medium",
+    "source": "regression.canvas",
+    "topic": "消息队列节点关系",
+    "media": [
+      {
+        "id": "canvas_queue",
+        "type": "canvas",
+        "description": "消息队列控制块与队列缓冲区之间的结构关系。",
+        "config": {
+          "canvas_type": "graph",
+          "initial_state": {
+            "nodes": [
+              {"id": "qcb", "label": "OS_Q", "x": 260, "y": 60},
+              {"id": "start", "label": "OSQStart", "x": 150, "y": 170},
+              {"id": "out", "label": "OSQOut", "x": 370, "y": 170}
+            ],
+            "edges": [
+              {"from": "qcb", "to": "start", "label": "buffer"},
+              {"from": "qcb", "to": "out", "label": "read"}
+            ]
+          },
+          "tools": []
+        },
+        "expected_answer": {
+          "selected_node": "start"
+        },
+        "judge_schema": {
+          "mode": "exact_match",
+          "ignore_fields": ["x", "y"]
+        }
+      }
+    ]
+  }
+]

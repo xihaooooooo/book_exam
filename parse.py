@@ -76,6 +76,9 @@ def main():
     book_id = sanitize_book_id(args.book_id) if args.book_id else ""
     book_paths = build_book_paths(book_id) if book_id else {}
     db_path = args.db or book_paths.get("sections_db") or DEFAULT_CONFIG.get("db_path", "cache/sections.db")
+    db_dir = os.path.dirname(os.path.abspath(db_path)) or "."
+    images_dir = book_paths.get("images_dir") or os.path.join(db_dir, "images")
+    manifest_path = book_paths.get("media_manifest") or os.path.join(db_dir, "media_manifest.json")
 
     def register_current_book():
         if not book_id:
@@ -120,6 +123,8 @@ def main():
         db_path=db_path,
         mineru_token=mineru_token,
         force_ocr=force_ocr,
+        assets_dir=images_dir,
+        manifest_path=manifest_path,
     )
     toc = pdf_parser.parse()
     pdf_parser.close()
@@ -140,6 +145,7 @@ def main():
     if pending:
         print(f"  待 OCR：{pending} 节")
     print(f"  数据库：{os.path.abspath(db_path)}")
+    print(f"  媒体清单：{os.path.abspath(manifest_path)}")
 
     register_current_book()
 

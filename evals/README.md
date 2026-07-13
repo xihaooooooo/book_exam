@@ -66,6 +66,8 @@ evals/
 | `allowed_types` | 允许题型：`choice`、`fill_blank`、`short_answer`、`code_fill`、`comprehensive` |
 | `allowed_difficulty` | 允许难度：`easy`、`medium`、`hard` |
 | `expected_keywords` | 教材依据或主题命中关键词 |
+| `expected_media_types` | 可选，期望题目携带的媒体类型，如 `image`、`mermaid`、`canvas` |
+| `requires_latex` | 可选，期望题目包含 LaTeX 公式 |
 | `coverage_tag` | 覆盖类型标签，用于报告分组 |
 
 Phase 1 MVP 优先评测自动指标：
@@ -75,6 +77,15 @@ Phase 1 MVP 优先评测自动指标：
 - `difficulty_adherence_rate`
 - `answer_presence_rate`
 - `explanation_presence_rate`
+- `keyword_coverage_rate`
+- `latex_format_pass_rate`
+- `media_contract_pass_rate`
+- `mermaid_contract_pass_rate`
+- `canvas_contract_pass_rate`
+- `expected_media_presence_rate`
+- `visual_reference_pass_rate`
+- `readonly_media_pass_rate`
+- `media_description_pass_rate`
 - `duplicate_rate`
 
 启用 LLM 专家审稿后，会追加以下指标：
@@ -86,6 +97,23 @@ Phase 1 MVP 优先评测自动指标：
 - `difficulty_fit_pass_rate`
 
 结构质检只判断题目 JSON 是否完整、题型/难度是否满足约束、答案解析是否存在、题干是否重复；LLM 专家审稿会进一步判断题目是否贴合章节、答案是否正确、解析是否有教学价值、难度是否合理。建议审稿模型与出题模型分开，例如出题使用 `BOOKTOEXAM_DEEP_THINK_LLM`，审稿使用 `BOOKTOEXAM_REVIEW_LLM`。如果未设置 `BOOKTOEXAM_REVIEW_LLM`，审稿会回退到当前评测 LLM 配置。
+
+多模态回归样本：
+
+- `evals/cases/generation_regression_cases.json`
+- `evals/cases/generation_regression_questions.json`
+
+它们覆盖 LaTeX、图片 `media`、Mermaid `media` 和 Canvas `media` 的基础契约，也检查题目是否是“看图作答”而不是“操作图作答”。可用下面命令检查已有门禁逻辑：
+
+```powershell
+python scripts/run_generation_eval.py --cases-file evals/cases/generation_regression_cases.json --questions-file evals/cases/generation_regression_questions.json
+```
+
+已有教材如果仍有图片占位描述，可显式运行补全脚本。脚本只使用章节/页文本生成保守描述，不调用视觉模型：
+
+```powershell
+python scripts/backfill_media_descriptions.py --book-id your_book_id
+```
 
 ## judge_cases.json
 

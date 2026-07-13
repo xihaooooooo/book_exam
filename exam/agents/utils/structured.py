@@ -103,6 +103,8 @@ def _make_example(schema_cls) -> dict:
     import typing
 
     for field_name, field_info in schema_cls.model_fields.items():
+        if getattr(field_info, "default", None) is None:
+            continue
         annotation = field_info.annotation
         # 处理 list 类型：展开泛型子类型
         if hasattr(annotation, "__origin__") and annotation.__origin__ is list:
@@ -126,4 +128,3 @@ def _make_example(schema_cls) -> dict:
         else:
             example[field_name] = f"<{field_info.description or field_name}>"
     return example
-

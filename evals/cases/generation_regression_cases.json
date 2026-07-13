@@ -1,0 +1,54 @@
+[
+  {
+    "case_id": "reg_latex_001",
+    "section_id": "regression.latex",
+    "section_title": "公式格式回归样本",
+    "topic_hint": "位图索引与优先级计算公式",
+    "mode": "exam",
+    "target_count": 1,
+    "allowed_types": ["fill_blank"],
+    "allowed_difficulty": ["medium"],
+    "expected_keywords": ["位图", "优先级"],
+    "requires_latex": true,
+    "coverage_tag": "multimodal_latex"
+  },
+  {
+    "case_id": "reg_image_001",
+    "section_id": "regression.image",
+    "section_title": "图片媒体回归样本",
+    "topic_hint": "任务状态转换图",
+    "mode": "exam",
+    "target_count": 1,
+    "allowed_types": ["choice"],
+    "allowed_difficulty": ["easy"],
+    "expected_keywords": ["任务", "状态"],
+    "expected_media_types": ["image"],
+    "coverage_tag": "multimodal_image"
+  },
+  {
+    "case_id": "reg_mermaid_001",
+    "section_id": "regression.mermaid",
+    "section_title": "Mermaid 媒体回归样本",
+    "topic_hint": "信号量等待与释放流程",
+    "mode": "exam",
+    "target_count": 1,
+    "allowed_types": ["short_answer"],
+    "allowed_difficulty": ["medium"],
+    "expected_keywords": ["信号量", "等待"],
+    "expected_media_types": ["mermaid"],
+    "coverage_tag": "multimodal_mermaid"
+  },
+  {
+    "case_id": "reg_canvas_001",
+    "section_id": "regression.canvas",
+    "section_title": "Canvas 结构化媒体回归样本",
+    "topic_hint": "消息队列节点关系",
+    "mode": "exam",
+    "target_count": 1,
+    "allowed_types": ["choice"],
+    "allowed_difficulty": ["medium"],
+    "expected_keywords": ["消息队列", "节点"],
+    "expected_media_types": ["canvas"],
+    "coverage_tag": "multimodal_canvas"
+  }
+]

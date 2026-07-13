@@ -82,6 +82,17 @@
     "notes": "LaTeX 空白归一化边界。"
   },
   {
+    "case_id": "judge_007b",
+    "question_type": "fill_blank",
+    "stem": "归一化边界：表达式结果为 ___。",
+    "correct_answer": "$x=5$",
+    "student_answer": "x=5",
+    "expected_correct": true,
+    "expected_error_type": null,
+    "judge_path": "rule",
+    "notes": "LaTeX 包裹符有无不影响填空题判定。"
+  },
+  {
     "case_id": "judge_008",
     "question_type": "short_answer",
     "stem": "简述任务优先级反转产生的条件。",

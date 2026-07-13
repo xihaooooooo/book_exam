@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 LLM_TIMEOUT = 30
 LLM_CONCURRENCY = 5
-DIAGNOSIS_CONCURRENCY = 5
+DIAGNOSIS_CONCURRENCY = 2
 
 # ── 错因枚举 ──
 
@@ -136,6 +136,7 @@ class JudgeGraph:
 
             qtype = ans.get("question_type", "")
             options_str = _format_options(ans.get("options", []))
+            stem_with_media = _append_media_context(ans.get("stem", ""), ans.get("media", []))
 
             if qtype == "choice":
                 ok = _strip_label(given).upper() == _strip_label(correct).upper()
@@ -145,7 +146,7 @@ class JudgeGraph:
                 if not ok:
                     diagnosis_tasks.append((
                         i, given, correct,
-                        ans.get("stem", ""),
+                        stem_with_media,
                         ans.get("explanation", ""),
                         options_str,
                         qtype,
@@ -155,7 +156,7 @@ class JudgeGraph:
             elif qtype in ("short_answer", "comprehensive", "code_fill"):
                 llm_tasks.append((
                     i, given, correct,
-                    ans.get("stem", ""),
+                    stem_with_media,
                     ans.get("explanation", ""),
                     options_str,
                     qtype,
@@ -170,7 +171,7 @@ class JudgeGraph:
                 if not ok:
                     diagnosis_tasks.append((
                         i, given, correct,
-                        ans.get("stem", ""),
+                        stem_with_media,
                         ans.get("explanation", ""),
                         options_str,
                         qtype,
@@ -562,6 +563,58 @@ def _format_options(options: list) -> str:
         elif isinstance(opt, str):
             lines.append(opt)
     return "\n".join(lines)
+
+
+def _append_media_context(stem: str, media: list) -> str:
+    media_context = _format_media(media)
+    if not media_context:
+        return stem
+    return f"{stem}\n\n题目媒体：\n{media_context}"
+
+
+def _format_media(media: list) -> str:
+    """Format media metadata as text-only context for judging."""
+    if not isinstance(media, list):
+        return ""
+
+    lines = []
+    for item in media:
+        if not isinstance(item, dict):
+            continue
+        media_id = str(item.get("id") or "").strip()
+        media_type = str(item.get("type") or "").strip()
+        label = "/".join(part for part in (media_id, media_type) if part)
+        desc = str(item.get("description") or "").strip()
+        src = str(item.get("src") or "").strip()
+        content = str(item.get("content") or "").strip()
+        if media_type == "mermaid" and content and not desc:
+            desc = "Mermaid 图：" + _short_media_text(content)
+        if media_type == "canvas" and not desc:
+            desc = "Canvas 配置：" + _short_media_text(_jsonish_media_text(item.get("config") or {}))
+        if media_type == "canvas" and item.get("expected_answer"):
+            answer_text = _short_media_text(_jsonish_media_text(item.get("expected_answer") or {}), limit=400)
+            desc = (desc + "；" if desc else "") + f"结构化答案：{answer_text}"
+        detail = desc or (f"文件 {src}" if src else "")
+        if label and detail:
+            lines.append(f"- {label}：{detail}")
+        elif detail:
+            lines.append(f"- {detail}")
+    return "\n".join(lines)
+
+
+def _short_media_text(text: str, limit: int = 800) -> str:
+    text = " ".join(str(text or "").split())
+    if len(text) <= limit:
+        return text
+    return text[:limit] + "..."
+
+
+def _jsonish_media_text(value) -> str:
+    try:
+        import json
+        return json.dumps(value, ensure_ascii=False, sort_keys=True)
+    except Exception:
+        return str(value or "")
 
 
 # ── 文本工具 ──

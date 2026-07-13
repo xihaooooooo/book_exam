@@ -19,6 +19,7 @@ import os
 import sys
 import glob
 import logging
+import mimetypes
 import threading
 import uuid
 from datetime import datetime
@@ -79,6 +80,8 @@ PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__fi
 EVAL_REPORTS_DIR = os.path.join(PROJECT_ROOT, "evals", "reports")
 BOOK_UPLOAD_JOBS = {}
 BOOK_UPLOAD_LOCK = threading.Lock()
+GENERATE_JOBS = {}
+GENERATE_LOCK = threading.Lock()
 MINERU_TOKEN_ENV_NAMES = (
     "MINERU_API_TOKEN",
     "MINERU_TOKEN",
@@ -115,6 +118,13 @@ def _ensure_attempt_dbs(ctx: dict) -> None:
 def _job_update(job_id: str, **kwargs) -> None:
     with BOOK_UPLOAD_LOCK:
         job = BOOK_UPLOAD_JOBS.setdefault(job_id, {})
+        job.update(kwargs)
+        job["updated_at"] = _now_text()
+
+
+def _generate_job_update(job_id: str, **kwargs) -> None:
+    with GENERATE_LOCK:
+        job = GENERATE_JOBS.setdefault(job_id, {})
         job.update(kwargs)
         job["updated_at"] = _now_text()
 
@@ -194,7 +204,7 @@ def _run_book_parse_job(
     parser = None
     try:
         paths = build_book_paths(book_id)
-        for path in (paths["book_cache_dir"], paths["output_dir"], paths["analysis_dir"]):
+        for path in (paths["book_cache_dir"], paths["images_dir"], paths["output_dir"], paths["analysis_dir"]):
             os.makedirs(path, exist_ok=True)
 
         _job_update(job_id, status="running", stage="OCR 解析教材")
@@ -208,6 +218,8 @@ def _run_book_parse_job(
             db_path=paths["sections_db"],
             mineru_token=token,
             force_ocr=True,
+            assets_dir=paths["images_dir"],
+            manifest_path=paths["media_manifest"],
         )
         toc = parser.parse()
 
@@ -240,6 +252,79 @@ def _run_book_parse_job(
                 parser.close()
             except Exception:
                 pass
+
+
+def _run_generate_job(
+    job_id: str,
+    ctx: dict,
+    config: dict,
+    db_path: str,
+    mode: str,
+    student_id: str,
+    focus: str,
+    target_count: int,
+    allowed_types: str,
+    allowed_difficulty: str,
+    analysis_report: str,
+    session_id: int | None,
+) -> None:
+    """Run ExamGraph in the background and update the in-memory job state."""
+    global QUESTIONS
+
+    try:
+        _generate_job_update(job_id, status="running", stage="构建目录")
+        toc = build_toc_from_db(db_path)
+
+        _generate_job_update(job_id, stage="Agent 出题中")
+        exam = ExamGraph(config=config, debug=False)
+        final_state, questions = exam.propagate(
+            db_path=db_path, toc=toc,
+            focus=focus, target_count=target_count,
+            allowed_types=allowed_types,
+            allowed_difficulty=allowed_difficulty,
+            analysis_report_path=analysis_report,
+            mode=mode, student_id=student_id,
+        )
+
+        QUESTIONS = questions
+        QUESTIONS_BY_BOOK[ctx["book_id"]] = questions
+        logger.info(
+            "generate job done: job=%s, book=%s, mode=%s, student=%s, generated=%d",
+            job_id, ctx["book_id"], mode, student_id, len(questions),
+        )
+
+        if session_id and mode == "practice":
+            _generate_job_update(job_id, stage="更新练习计划")
+            update_generated_session_plan(
+                ctx["attempts_db"],
+                session_id,
+                final_state.get("practice_plan") or {},
+            )
+
+        _generate_job_update(
+            job_id,
+            status="done",
+            stage="完成",
+            count=len(questions),
+            mode=mode,
+            session_id=session_id,
+            book_id=ctx["book_id"],
+        )
+    except Exception:
+        logger.exception("generate job failed: job=%s", job_id)
+        try:
+            abort_session(ctx["attempts_db"], session_id, "generate failed")
+        except Exception:
+            logger.exception("标记 session=%s 为 aborted 失败", session_id)
+        _generate_job_update(
+            job_id,
+            status="failed",
+            stage="失败",
+            error="出题失败，查看服务器日志",
+            mode=mode,
+            session_id=session_id,
+            book_id=ctx.get("book_id", ""),
+        )
 
 
 # ── 题目加载 ──
@@ -548,6 +633,9 @@ class QuizHandler(SimpleHTTPRequestHandler):
             job_id = unquote(parsed.path[len("/api/books/jobs/"):])
             self._handle_book_job(job_id)
             return
+        if parsed.path == "/api/media":
+            self._handle_media(parsed)
+            return
         if parsed.path == "/api/questions":
             try:
                 ctx = _resolve_book_context(_query_book_id(parsed))
@@ -585,6 +673,10 @@ class QuizHandler(SimpleHTTPRequestHandler):
                 _serve_exam_detail(self, filename, ctx["output_dir"])
             except KeyError as e:
                 self._serve_json({"ok": False, "error": str(e)}, status=404)
+            return
+        if parsed.path.startswith("/api/generate/jobs/"):
+            job_id = unquote(parsed.path[len("/api/generate/jobs/"):])
+            self._handle_generate_job(job_id)
             return
         if parsed.path == "/api/evals":
             self._handle_evals_list()
@@ -625,6 +717,71 @@ class QuizHandler(SimpleHTTPRequestHandler):
             job = dict(BOOK_UPLOAD_JOBS.get(job_id) or {})
         if not job:
             self._serve_json({"ok": False, "error": "上传任务不存在"}, status=404)
+            return
+        job["ok"] = True
+        self._serve_json(job)
+
+    def _handle_media(self, parsed):
+        qs = parse_qs(parsed.query or "")
+        src = (qs.get("src") or [""])[0].strip()
+        if not src:
+            self._serve_json({"ok": False, "error": "缺少 src"}, status=400)
+            return
+
+        raw_src = src.replace("\\", "/")
+        parts = [part for part in raw_src.split("/") if part]
+        if (
+            os.path.isabs(raw_src)
+            or raw_src.startswith("/")
+            or ":" in raw_src
+            or any(part == ".." for part in parts)
+        ):
+            self._serve_json({"ok": False, "error": "非法媒体路径"}, status=400)
+            return
+
+        try:
+            ctx = _resolve_book_context((qs.get("book_id") or [""])[0])
+        except KeyError as e:
+            self._serve_json({"ok": False, "error": str(e)}, status=404)
+            return
+
+        manifest_root = os.path.abspath(os.path.dirname(ctx["media_manifest"]) or ctx["book_cache_dir"])
+        images_root = os.path.abspath(ctx["images_dir"])
+        media_path = os.path.abspath(os.path.join(manifest_root, raw_src))
+        try:
+            if os.path.commonpath([images_root, media_path]) != images_root:
+                self._serve_json({"ok": False, "error": "媒体路径越界"}, status=403)
+                return
+        except ValueError:
+            self._serve_json({"ok": False, "error": "媒体路径越界"}, status=403)
+            return
+
+        if not os.path.isfile(media_path):
+            self._serve_json({"ok": False, "error": "媒体不存在"}, status=404)
+            return
+
+        content_type = mimetypes.guess_type(media_path)[0] or "application/octet-stream"
+        try:
+            with open(media_path, "rb") as fh:
+                body = fh.read()
+            self.send_response(200)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Cache-Control", "public, max-age=86400")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        except Exception:
+            logger.exception("媒体读取失败: %s", media_path)
+            self._serve_json({"ok": False, "error": "媒体读取失败"}, status=500)
+
+    def _handle_generate_job(self, job_id: str):
+        if not job_id:
+            self._serve_json({"ok": False, "error": "缺少 job_id"}, status=400)
+            return
+        with GENERATE_LOCK:
+            job = dict(GENERATE_JOBS.get(job_id) or {})
+        if not job:
+            self._serve_json({"ok": False, "error": "出题任务不存在"}, status=404)
             return
         job["ok"] = True
         self._serve_json(job)
@@ -820,8 +977,6 @@ class QuizHandler(SimpleHTTPRequestHandler):
             self._serve_json({"ok": False, "error": "画像构建失败，查看服务器日志"}, status=500)
 
     def _handle_generate(self):
-        global QUESTIONS
-
         length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(length) if length else b"{}"
         try:
@@ -844,6 +999,7 @@ class QuizHandler(SimpleHTTPRequestHandler):
         except Exception as e:
             self._serve_json({"ok": False, "error": str(e)}, status=400)
             return
+
         config = DEFAULT_CONFIG.copy()
         config["db_path"] = ctx["sections_db"]
         config["results_dir"] = ctx["output_dir"]
@@ -863,45 +1019,52 @@ class QuizHandler(SimpleHTTPRequestHandler):
         )
         session_id = session.get("session_id")
 
-        try:
-            toc = build_toc_from_db(db_path)
-            exam = ExamGraph(config=config, debug=False)
-            final_state, questions = exam.propagate(
-                db_path=db_path, toc=toc,
-                focus=focus, target_count=target_count,
-                allowed_types=allowed_types,
-                allowed_difficulty=allowed_difficulty,
-                analysis_report_path=analysis_report,
-                mode=mode, student_id=student_id,
-            )
-            QUESTIONS = questions
-            QUESTIONS_BY_BOOK[ctx["book_id"]] = questions
-            logger.info("generate: book=%s, mode=%s, student=%s, generated=%d",
-                        ctx["book_id"], mode, student_id, len(QUESTIONS))
-
-            # ③ 提取 practice_plan 回写 session
-            if session_id and mode == "practice":
-                update_generated_session_plan(
-                    ctx["attempts_db"],
-                    session_id,
-                    final_state.get("practice_plan") or {},
-                )
-
-            self._serve_json({
+        job_id = uuid.uuid4().hex[:12]
+        with GENERATE_LOCK:
+            GENERATE_JOBS[job_id] = {
                 "ok": True,
-                "count": len(questions),
+                "job_id": job_id,
+                "status": "queued",
+                "stage": "等待出题",
                 "mode": mode,
                 "session_id": session_id,
                 "book_id": ctx["book_id"],
-            })
-        except Exception:
-            logger.exception("generate API 失败")
-            # 出题失败 → 将 session 标记为 aborted，避免残留 active 记录
-            try:
-                abort_session(ctx["attempts_db"], session_id, "generate failed")
-            except Exception:
-                logger.exception("标记 session=%s 为 aborted 失败", session_id)
-            self._serve_json({"ok": False, "error": "出题失败，查看服务器日志"}, status=500)
+                "created_at": _now_text(),
+                "updated_at": _now_text(),
+            }
+
+        thread = threading.Thread(
+            target=_run_generate_job,
+            args=(
+                job_id,
+                ctx,
+                config,
+                db_path,
+                mode,
+                student_id,
+                focus,
+                target_count,
+                allowed_types,
+                allowed_difficulty,
+                analysis_report,
+                session_id,
+            ),
+            daemon=True,
+        )
+        thread.start()
+
+        logger.info("generate job queued: job=%s, book=%s, mode=%s, student=%s",
+                    job_id, ctx["book_id"], mode, student_id)
+        self._serve_json({
+            "ok": True,
+            "async": True,
+            "job_id": job_id,
+            "status": "queued",
+            "stage": "等待出题",
+            "mode": mode,
+            "session_id": session_id,
+            "book_id": ctx["book_id"],
+        }, status=202)
 
     def _handle_analyze_exam(self):
         import base64, tempfile

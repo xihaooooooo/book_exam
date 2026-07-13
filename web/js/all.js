@@ -6,7 +6,7 @@ let CURRENT_BOOK_ID = (() => {
 let CURRENT_SESSION_ID = (() => {
   try { const v = sessionStorage.getItem('current_session_id'); return v ? parseInt(v) : null; } catch(e) { return null; }
 })();
-const TYPE_LABELS = { choice:'选择题', fill_blank:'填空题', short_answer:'简答题', comprehensive:'综合题' };
+const TYPE_LABELS = { choice:'选择题', fill_blank:'填空题', short_answer:'简答题', code_fill:'代码填空题', comprehensive:'综合题' };
 const DIFF_LABELS = { easy:'简单', medium:'中等', hard:'困难', easy_to_medium:'简单→中等', medium_to_hard:'中等→困难' };
 const ML_LABELS = { mastered:'已掌握', familiar:'熟悉', unstable:'不稳定', weak:'薄弱', unknown:'未知' };
 const ERROR_TYPE_LABELS = {
@@ -19,7 +19,7 @@ const ERROR_TYPE_LABELS = {
 };
 
 let genMode = 'exam';
-const typeMap = { '选择题': 'choice', '填空题': 'fill_blank', '简答题': 'short_answer' };
+const typeMap = { '选择题': 'choice', '填空题': 'fill_blank', '简答题': 'short_answer', '代码填空题': 'code_fill', '综合题': 'comprehensive' };
 
 let questions = [], qIdx = 0, qStartTs = Date.now(), confidence = 3, answers = [];
 
@@ -43,6 +43,235 @@ function renderLatex(text) {
 
 function safeSetHTML(el, text) {
   if (el) el.innerHTML = renderLatex(text);
+}
+
+function attr(s) {
+  return esc(s).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function stripMediaMarkers(text) {
+  return String(text || '').replace(/\s*\[media:[^\]]+\]\s*/g, ' ').replace(/\s{2,}/g, ' ').trim();
+}
+
+function mediaList(media) {
+  return Array.isArray(media) ? media : [];
+}
+
+function mediaUrl(item) {
+  const src = item && item.src ? String(item.src) : '';
+  if (!src) return '';
+  const params = new URLSearchParams();
+  params.set('src', src);
+  if (CURRENT_BOOK_ID) params.set('book_id', CURRENT_BOOK_ID);
+  return '/api/media?' + params.toString();
+}
+
+function encodeMermaidSource(content) {
+  try { return encodeURIComponent(String(content || '')); }
+  catch(e) { return ''; }
+}
+
+function decodeMermaidSource(content) {
+  try { return decodeURIComponent(String(content || '')); }
+  catch(e) { return ''; }
+}
+
+function openImageViewer(src, title) {
+  if (!src) return;
+  closeImageViewer();
+  const overlay = document.createElement('div');
+  overlay.className = 'media-viewer';
+  overlay.innerHTML = `<div class="media-viewer-panel">
+    <button type="button" class="media-viewer-close" aria-label="关闭">×</button>
+    <img src="${attr(src)}" alt="${attr(title || '题图')}">
+    ${title ? `<div class="media-viewer-caption">${esc(title)}</div>` : ''}
+  </div>`;
+  document.body.appendChild(overlay);
+}
+
+function closeImageViewer() {
+  const viewer = document.querySelector('.media-viewer');
+  if (viewer) viewer.remove();
+}
+
+function canvasConfig(item) {
+  return item && item.config && typeof item.config === 'object' ? item.config : {};
+}
+
+function canvasInitialState(config) {
+  const state = config && config.initial_state && typeof config.initial_state === 'object'
+    ? config.initial_state
+    : config || {};
+  return state && typeof state === 'object' ? state : {};
+}
+
+function normalizeCanvasNodes(state) {
+  const raw = Array.isArray(state.nodes) ? state.nodes : [];
+  return raw.map((node, index) => {
+    if (node && typeof node === 'object') {
+      const id = String(node.id || node.key || index);
+      return {
+        id,
+        label: String(node.label || node.name || id),
+        x: Number.isFinite(Number(node.x)) ? Number(node.x) : null,
+        y: Number.isFinite(Number(node.y)) ? Number(node.y) : null,
+      };
+    }
+    return { id: String(index), label: String(node), x: null, y: null };
+  });
+}
+
+function normalizeCanvasEdges(state) {
+  const raw = Array.isArray(state.edges) ? state.edges : [];
+  return raw.map(edge => {
+    if (edge && typeof edge === 'object') {
+      return {
+        from: String(edge.from || edge.source || ''),
+        to: String(edge.to || edge.target || ''),
+        label: edge.label ? String(edge.label) : '',
+      };
+    }
+    if (Array.isArray(edge) && edge.length >= 2) {
+      return { from: String(edge[0]), to: String(edge[1]), label: '' };
+    }
+    return null;
+  }).filter(Boolean);
+}
+
+function layoutCanvasNodes(nodes, width, height) {
+  if (!nodes.length) return [];
+  const cx = width / 2, cy = height / 2;
+  const radius = Math.min(width, height) * 0.34;
+  return nodes.map((node, index) => {
+    if (node.x !== null && node.y !== null) return node;
+    const angle = nodes.length === 1 ? -Math.PI / 2 : (Math.PI * 2 * index / nodes.length) - Math.PI / 2;
+    return {
+      ...node,
+      x: Math.round(cx + Math.cos(angle) * radius),
+      y: Math.round(cy + Math.sin(angle) * radius),
+    };
+  });
+}
+
+function renderCanvasPreview(item) {
+  const config = canvasConfig(item);
+  const state = canvasInitialState(config);
+  const canvasType = String(config.canvas_type || state.canvas_type || 'structure');
+  const nodes = layoutCanvasNodes(normalizeCanvasNodes(state), 520, 260);
+  const edges = normalizeCanvasEdges(state);
+  const nodeById = Object.fromEntries(nodes.map(node => [node.id, node]));
+  if (nodes.length) {
+    const edgeHtml = edges.map(edge => {
+      const from = nodeById[edge.from], to = nodeById[edge.to];
+      if (!from || !to) return '';
+      const mx = Math.round((from.x + to.x) / 2);
+      const my = Math.round((from.y + to.y) / 2);
+      return `<g class="canvas-edge">
+        <line x1="${attr(from.x)}" y1="${attr(from.y)}" x2="${attr(to.x)}" y2="${attr(to.y)}"></line>
+        ${edge.label ? `<text x="${attr(mx)}" y="${attr(my - 5)}">${esc(edge.label)}</text>` : ''}
+      </g>`;
+    }).join('');
+    const nodeHtml = nodes.map(node => `<g class="canvas-node" transform="translate(${attr(node.x)},${attr(node.y)})">
+      <circle r="28"></circle>
+      <text text-anchor="middle" dominant-baseline="middle">${esc(node.label)}</text>
+    </g>`).join('');
+    return `<div class="canvas-preview" data-canvas-type="${attr(canvasType)}">
+      <div class="canvas-preview-head">${esc(canvasType)}</div>
+      <svg class="canvas-svg" viewBox="0 0 520 260" role="img" aria-label="${attr(item.description || canvasType)}">
+        <defs>
+          <marker id="canvasArrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L9,3 z"></path>
+          </marker>
+        </defs>
+        ${edgeHtml}${nodeHtml}
+      </svg>
+    </div>`;
+  }
+  return `<div class="canvas-preview canvas-preview-empty">
+    <div class="canvas-preview-head">${esc(canvasType)}</div>
+    <pre>${esc(JSON.stringify(state || {}, null, 2)).slice(0, 1000)}</pre>
+  </div>`;
+}
+
+function initMermaidRenderer() {
+  if (!window.mermaid || window.__MERMAID_READY__) return !!window.mermaid;
+  window.mermaid.initialize({
+    startOnLoad: false,
+    securityLevel: 'strict',
+    theme: 'base',
+    themeVariables: {
+      primaryColor: '#F7EFE3',
+      primaryTextColor: '#211B16',
+      primaryBorderColor: '#C49A5E',
+      lineColor: '#7A6B5A',
+      fontFamily: 'Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+    },
+  });
+  window.__MERMAID_READY__ = true;
+  return true;
+}
+
+async function renderMermaidBlocks(root) {
+  const scope = root || document;
+  const blocks = Array.from(scope.querySelectorAll('.mermaid-diagram:not([data-rendered="1"])'));
+  if (!blocks.length) return;
+  if (!initMermaidRenderer()) {
+    blocks.forEach(block => {
+      block.textContent = '图表渲染器未加载';
+      block.classList.add('mermaid-error');
+      block.dataset.rendered = '1';
+    });
+    return;
+  }
+  for (const [index, block] of blocks.entries()) {
+    const source = decodeMermaidSource(block.dataset.mermaidSource || '').trim();
+    if (!source) continue;
+    try {
+      const id = `mmd_${Date.now()}_${index}_${Math.random().toString(36).slice(2)}`;
+      const rendered = await window.mermaid.render(id, source);
+      block.innerHTML = rendered.svg || '';
+      block.dataset.rendered = '1';
+    } catch(e) {
+      block.textContent = '图表渲染失败';
+      block.classList.add('mermaid-error');
+      block.dataset.rendered = '1';
+    }
+  }
+}
+
+function renderMediaList(media) {
+  const items = mediaList(media);
+  if (!items.length) return '';
+  const html = items.map(item => {
+    if (!item) return '';
+    const caption = item.description ? `<figcaption>${esc(item.description)}</figcaption>` : '';
+    if (item.type === 'image') {
+      const url = mediaUrl(item);
+      if (!url) return '';
+      const title = item.description || item.id || '教材插图';
+      return `<figure class="media-figure" data-media-id="${attr(item.id || '')}">
+        <img class="media-image" src="${attr(url)}" alt="${attr(item.id || '教材插图')}" loading="lazy">
+        <button type="button" class="media-zoom" data-src="${attr(url)}" data-title="${attr(title)}">查看大图</button>
+        ${caption}
+      </figure>`;
+    }
+    if (item.type === 'mermaid') {
+      const source = String(item.content || '').trim();
+      if (!source) return '';
+      return `<figure class="media-figure media-mermaid" data-media-id="${attr(item.id || '')}">
+        <div class="mermaid-diagram" data-mermaid-source="${attr(encodeMermaidSource(source))}"></div>
+        ${caption}
+      </figure>`;
+    }
+    if (item.type === 'canvas') {
+      return `<figure class="media-figure media-canvas" data-media-id="${attr(item.id || '')}">
+        ${renderCanvasPreview(item)}
+        ${caption}
+      </figure>`;
+    }
+    return '';
+  }).join('');
+  return html ? `<div class="media-list">${html}</div>` : '';
 }
 
 function labelOf(i) { return String.fromCharCode(65+i); }
@@ -345,11 +574,11 @@ function uploadExamFile(input) {
   input.value = '';
 }
 
-function doGenerate() {
+async function doGenerate() {
   const btn = document.getElementById('genBtn');
   const status = document.getElementById('genStatus');
   btn.disabled = true;
-  safeSetHTML(status, '<div class="loading-state" style="padding:20px;">⏳ 出题中，请耐心等待（约 30-60 秒）...</div>');
+  safeSetHTML(status, '<div class="loading-state" style="padding:20px;">出题任务已提交，请耐心等待...</div>');
 
   const selTypes = [];
   document.querySelectorAll('#typeTags .type-tag.sel').forEach(t => selTypes.push(t.dataset.type));
@@ -357,39 +586,66 @@ function doGenerate() {
   document.querySelectorAll('#diffTags .type-tag.sel').forEach(t => selDiffs.push(t.dataset.diff));
   const analysisReport = document.getElementById('genAnalysis').value;
 
-  fetch('/api/generate', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(withBookPayload({
-      mode: genMode,
-      count: parseInt(document.getElementById('genCount').value) || 0,
-      types: selTypes.join(','),
-      difficulty: selDiffs.join(','),
-      focus: document.getElementById('genFocus').value.trim(),
-      student_id: STUDENT_ID,
-      analysis_report: analysisReport,
-    })),
-  }).then(r => r.json()).then(data => {
-    btn.disabled = false;
-    if (data.ok) {
-      CURRENT_SESSION_ID = data.session_id || null;
-      if (CURRENT_SESSION_ID) { try { sessionStorage.setItem('current_session_id', CURRENT_SESSION_ID); } catch(e) {} }
-      questions = [];
-      answers = [];
-      fetchQuestions();
-      loadExamHistory();
-      safeSetHTML(status, `<div class="gen-result">
-        <div class="big">✅ ${data.count} 题</div>
-        <div style="color:#8B8680;margin:8px 0;">模式：${data.mode} · 已加载到答题区</div>
-        <button class="btn btn-submit" style="margin-top:12px;width:auto;padding:12px 32px;" onclick="switchTab('quiz')">去答题 →</button>
-      </div>`);
-    } else {
-      safeSetHTML(status, `<div class="empty-state" style="padding:20px;color:#B55A4A;">❌ ${data.error || '未知错误'}</div>`);
+  try {
+    const res = await fetch('/api/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(withBookPayload({
+        mode: genMode,
+        count: parseInt(document.getElementById('genCount').value) || 0,
+        types: selTypes.join(','),
+        difficulty: selDiffs.join(','),
+        focus: document.getElementById('genFocus').value.trim(),
+        student_id: STUDENT_ID,
+        analysis_report: analysisReport,
+      })),
+    });
+    let data = await res.json();
+    if (!data.ok) throw new Error(data.error || '未知错误');
+    if (data.async && data.job_id) {
+      data = await pollGenerateJob(data.job_id, status);
     }
-  }).catch(e => {
+    await finishGenerate(data, status);
+  } catch (e) {
     btn.disabled = false;
-    safeSetHTML(status, `<div class="empty-state" style="padding:20px;color:#B55A4A;">❌ 网络错误：${e.message}</div>`);
-  });
+    safeSetHTML(status, `<div class="empty-state" style="padding:20px;color:#B55A4A;">❌ 出题失败：${esc(e.message)}</div>`);
+  }
+}
+
+async function pollGenerateJob(jobId, statusEl) {
+  const startedAt = Date.now();
+  while (true) {
+    await new Promise(resolve => setTimeout(resolve, 1600));
+    const res = await fetch('/api/generate/jobs/' + encodeURIComponent(jobId));
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || '出题任务读取失败');
+    if (data.status === 'done') return data;
+    if (data.status === 'failed') throw new Error(data.error || '出题失败');
+    const stage = data.stage || data.status || '出题中';
+    safeSetHTML(statusEl, `<div class="loading-state" style="padding:20px;">${esc(stage)}...</div>`);
+    if (Date.now() - startedAt > 15 * 60 * 1000) {
+      throw new Error('出题超时，请稍后重试');
+    }
+  }
+}
+
+async function finishGenerate(data, statusEl) {
+  if (data.status && data.status !== 'done' && data.count == null) {
+    throw new Error(data.error || '出题未完成');
+  }
+  CURRENT_SESSION_ID = data.session_id || null;
+  if (CURRENT_SESSION_ID) { try { sessionStorage.setItem('current_session_id', CURRENT_SESSION_ID); } catch(e) {} }
+  questions = [];
+  answers = [];
+  await fetchQuestions();
+  loadExamHistory();
+  const btn = document.getElementById('genBtn');
+  if (btn) btn.disabled = false;
+  safeSetHTML(statusEl, `<div class="gen-result">
+    <div class="big">✅ ${data.count || 0} 题</div>
+    <div style="color:#8B8680;margin:8px 0;">模式：${data.mode || genMode} · 已加载到答题区</div>
+    <button class="btn btn-submit" style="margin-top:12px;width:auto;padding:12px 32px;" onclick="switchTab('quiz')">去答题 →</button>
+  </div>`);
 }
 
 // ═══════════════════════════════════
@@ -450,12 +706,13 @@ function renderQuiz() {
     let o = '<div class="opts">';
     (q.options||[]).forEach((opt,i) => {
       let cls = labelOf(i) === ans.student_answer ? ' sel' : '';
-      o += `<div class="opt${cls}" data-oi="${i}"><div class="dot">${labelOf(i)}</div><div class="txt">${opt.replace(/^[A-D][.、\s]+/,'')}</div></div>`;
+      const optText = esc(String(opt || '').replace(/^[A-D][.、\s]+/,''));
+      o += `<div class="opt${cls}" data-oi="${i}"><div class="dot">${labelOf(i)}</div><div class="txt">${optText}</div></div>`;
     });
     inputHtml = o + '</div>';
   } else {
     const ph = q.question_type==='fill_blank'?'请输入答案...':'请输入你的回答...';
-    inputHtml = `<textarea class="tinp" id="textAns" rows="${q.question_type==='short_answer'?4:2}" placeholder="${ph}">${ans.student_answer||''}</textarea>`;
+    inputHtml = `<textarea class="tinp" id="textAns" rows="${q.question_type==='short_answer'?4:2}" placeholder="${ph}">${esc(ans.student_answer||'')}</textarea>`;
   }
 
   let starsHtml = '';
@@ -466,7 +723,8 @@ function renderQuiz() {
     ? `<button class="btn btn-finish" id="submitBtn" onclick="confirmSubmit()" ${!hasAns?'disabled':''}>交卷</button>`
     : `<button class="btn btn-submit" id="submitBtn" onclick="nextQ()" ${!hasAns?'disabled':''}>下一题 →</button>`;
 
-  safeSetHTML(document.getElementById('quizRoot'), `
+  const quizRoot = document.getElementById('quizRoot');
+  safeSetHTML(quizRoot, `
     <div class="card quiz-card">
       <div class="qinfo">
         <div class="qtopic">${esc(q.source||'')}  ${esc(q.topic||'')}</div>
@@ -477,15 +735,26 @@ function renderQuiz() {
         </div>
       </div>
       <div class="qprog">${segs}<div class="qnum">${String(qIdx+1).padStart(2,'0')}/${String(total).padStart(2,'0')}</div></div>
-      <div class="qstem">${esc(q.stem)}</div>
+      <div class="qstem">${esc(stripMediaMarkers(q.stem))}</div>
+      ${renderMediaList(q.media)}
       ${inputHtml}
       <div class="conf"><span class="clabel">把握度</span><div class="stars">${starsHtml}</div></div>
       <div class="btns">${btnHtml}</div>
     </div>`);
+  renderMermaidBlocks(quizRoot);
 }
 
 // Delegate quiz events
 document.addEventListener('click', (e) => {
+  const zoom = e.target.closest('.media-zoom');
+  if (zoom) {
+    openImageViewer(zoom.dataset.src || '', zoom.dataset.title || '');
+    return;
+  }
+  if (e.target.closest('.media-viewer-close') || e.target.classList.contains('media-viewer')) {
+    closeImageViewer();
+    return;
+  }
   if (!document.getElementById('tab-quiz').classList.contains('active')) return;
   const opt = e.target.closest('.opt');
   if (opt && !document.querySelector('.opts.submitted')) {
@@ -513,6 +782,10 @@ document.addEventListener('input', (e) => {
     const btn = document.getElementById('submitBtn');
     if (btn) btn.disabled = !e.target.value.trim();
   }
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeImageViewer();
 });
 
 function nextQ() {
@@ -560,13 +833,18 @@ async function submitExam() {
     student_id: STUDENT_ID,
     session_id: CURRENT_SESSION_ID,
     book_id: CURRENT_BOOK_ID,
-    answers: questions.map((q, i) => ({
-      question_type: q.question_type, student_answer: (answers[i] && answers[i].student_answer) || '',
-      correct_answer: q.correct_answer, stem: q.stem, explanation: q.explanation || '',
-      source: q.source || '', topic: q.topic || '', difficulty: q.difficulty || '',
-      duration_sec: (answers[i] && answers[i].duration_sec) || 0,
-      confidence: (answers[i] && answers[i].confidence) || 3,
-    })),
+    answers: questions.map((q, i) => {
+      const answer = {
+        question_type: q.question_type, student_answer: (answers[i] && answers[i].student_answer) || '',
+        correct_answer: q.correct_answer, stem: q.stem, explanation: q.explanation || '',
+        source: q.source || '', topic: q.topic || '', difficulty: q.difficulty || '',
+        duration_sec: (answers[i] && answers[i].duration_sec) || 0,
+        confidence: (answers[i] && answers[i].confidence) || 3,
+      };
+      const media = mediaList(q.media);
+      if (media.length) answer.media = media;
+      return answer;
+    }),
   };
   try {
     const res = await fetch('/api/submit-exam', {
@@ -615,7 +893,8 @@ function showQuizResult(results) {
     reviewHtml += `<div class="ritem ${ok?'r-ok':'r-no'}">
       <div>${ok?'✓':'✗'}</div>
       <div>
-        <div style="font-weight:500;margin-bottom:2px;">${i+1}. ${esc(q.stem)}</div>
+        <div style="font-weight:500;margin-bottom:2px;">${i+1}. ${esc(stripMediaMarkers(q.stem))}</div>
+        ${renderMediaList(q.media)}
         <div style="font-size:12px;color:#8B8680;">
           你的：${esc(a.student_answer||'未答')} | 正确：${esc(q.correct_answer)} | ${a.duration_sec||0}s | ${'★'.repeat(a.confidence||0)}
           ${r.method==='llm'?' | 🤖 LLM':r.method==='fallback'?' | ⚠️ 降级':''}
@@ -627,7 +906,8 @@ function showQuizResult(results) {
     </div>`;
   });
 
-  safeSetHTML(document.getElementById('quizRoot'), `
+  const quizRoot = document.getElementById('quizRoot');
+  safeSetHTML(quizRoot, `
     <div class="card qresult">
       <div class="big">${accuracy}<span>%</span></div>
       <div style="color:#8B8680;font-size:14px;">${accuracy>=80?'非常棒！':accuracy>=60?'不错，继续加油':'别灰心，多练几次'}</div>
@@ -640,6 +920,7 @@ function showQuizResult(results) {
       <button class="btn btn-next" style="margin-top:16px;width:100%;" onclick="switchTab('profile')">查看画像 →</button>
       <button class="btn btn-submit" style="margin-top:8px;width:100%;" onclick="questions=[];switchTab('generate')">重新出题</button>
     </div>`);
+  renderMermaidBlocks(quizRoot);
 }
 
 async function correctAttempt(attemptId, isCorrect, idx, errorType = '') {
@@ -1169,9 +1450,10 @@ async function toggleExam(filename) {
         var qs = await res.json();
         var html = '';
         qs.forEach(function(q, i) {
-          var opts = q.options && q.options.length ? q.options.map(function(o) { return '<span style=\"display:inline-block;margin:2px 8px 2px 0;\">' + esc(o) + '</span>'; }).join('') : '';
+          var opts = q.options && q.options.length ? q.options.map(function(o) { return '<span style=\"display:inline-block;margin:2px 8px 2px 0;\">' + renderLatex(esc(o)) + '</span>'; }).join('') : '';
           html += '<div style=\"margin-bottom:12px;padding:10px;background:rgba(255,255,255,0.3);border-radius:10px;\">'
-            + '<div style=\"font-weight:600;margin-bottom:4px;\">' + (i+1) + '. [' + esc(q.question_type||'') + '] ' + renderLatex(esc(q.stem||'')) + '</div>'
+            + '<div style=\"font-weight:600;margin-bottom:4px;\">' + (i+1) + '. [' + esc(q.question_type||'') + '] ' + renderLatex(esc(stripMediaMarkers(q.stem||''))) + '</div>'
+            + renderMediaList(q.media)
             + (opts ? '<div style=\"font-size:13px;color:#8B8680;margin-bottom:4px;\">' + opts + '</div>' : '')
             + '<div style=\"font-size:12px;color:#4A7C59;\">答案：' + renderLatex(esc(q.correct_answer||'')) + '</div>'
             + (q.explanation ? '<div style=\"font-size:12px;color:#8B8680;\">解析：' + renderLatex(esc(q.explanation)) + '</div>' : '')
@@ -1179,6 +1461,7 @@ async function toggleExam(filename) {
             + '</div>';
         });
         el.innerHTML = html;
+        renderMermaidBlocks(el);
         el.dataset.loaded = '1';
       } catch(e) { el.innerHTML = '<div style=\"color:#B55A4A;\">加载失败</div>'; }
     }

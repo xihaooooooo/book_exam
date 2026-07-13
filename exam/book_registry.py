@@ -53,6 +53,8 @@ def build_book_paths(book_id: str) -> dict[str, str]:
         "book_cache_dir": base,
         "sections_db": os.path.join(base, "sections.db"),
         "attempts_db": os.path.join(base, "attempts.db"),
+        "images_dir": os.path.join(base, "images"),
+        "media_manifest": os.path.join(base, "media_manifest.json"),
         "output_dir": os.path.join(PROJECT_ROOT, "output", "books", book_id),
         "analysis_dir": os.path.join(PROJECT_ROOT, "analysis", "books", book_id),
         "upload_dir": os.path.join(PROJECT_ROOT, "uploads", "books", book_id),
@@ -66,6 +68,8 @@ def _default_book() -> dict[str, Any]:
         "pdf_path": "",
         "sections_db": _rel(os.path.join(CACHE_DIR, "sections.db")),
         "attempts_db": _rel(os.path.join(CACHE_DIR, "attempts.db")),
+        "images_dir": _rel(os.path.join(CACHE_DIR, "images")),
+        "media_manifest": _rel(os.path.join(CACHE_DIR, "media_manifest.json")),
         "output_dir": _rel(os.path.join(PROJECT_ROOT, "output")),
         "analysis_dir": _rel(os.path.join(PROJECT_ROOT, "analysis")),
         "created_at": "",
@@ -99,6 +103,12 @@ def _normalize_registry(data: dict[str, Any] | None) -> dict[str, Any]:
         item.setdefault("created_at", "")
         item.setdefault("updated_at", "")
         paths = build_book_paths(book_id)
+        if book_id == DEFAULT_BOOK_ID:
+            item.setdefault("images_dir", _rel(os.path.join(CACHE_DIR, "images")))
+            item.setdefault("media_manifest", _rel(os.path.join(CACHE_DIR, "media_manifest.json")))
+        else:
+            item.setdefault("images_dir", _rel(paths["images_dir"]))
+            item.setdefault("media_manifest", _rel(paths["media_manifest"]))
         item.setdefault("sections_db", _rel(paths["sections_db"]))
         item.setdefault("attempts_db", _rel(paths["attempts_db"]))
         item.setdefault("output_dir", _rel(paths["output_dir"]))
@@ -164,6 +174,8 @@ def list_books() -> dict[str, Any]:
             "has_attempts": os.path.exists(item["attempts_db"]),
             "sections_db": item["sections_db"],
             "attempts_db": item["attempts_db"],
+            "images_dir": item["images_dir"],
+            "media_manifest": item["media_manifest"],
             "output_dir": item["output_dir"],
             "analysis_dir": item["analysis_dir"],
             "created_at": item.get("created_at", ""),
@@ -202,6 +214,8 @@ def register_book(
         "pdf_path": _rel(pdf_path) if pdf_path else "",
         "sections_db": _rel(sections_db or paths["sections_db"]),
         "attempts_db": _rel(attempts_db or paths["attempts_db"]),
+        "images_dir": _rel(paths["images_dir"]),
+        "media_manifest": _rel(paths["media_manifest"]),
         "output_dir": _rel(output_dir or paths["output_dir"]),
         "analysis_dir": _rel(analysis_dir or paths["analysis_dir"]),
         "updated_at": now,
@@ -230,6 +244,8 @@ def _with_absolute_paths(book: dict[str, Any]) -> dict[str, Any]:
     paths = build_book_paths(item["book_id"])
     item["sections_db"] = _abs(item.get("sections_db") or paths["sections_db"])
     item["attempts_db"] = _abs(item.get("attempts_db") or paths["attempts_db"])
+    item["images_dir"] = _abs(item.get("images_dir") or paths["images_dir"])
+    item["media_manifest"] = _abs(item.get("media_manifest") or paths["media_manifest"])
     item["output_dir"] = _abs(item.get("output_dir") or paths["output_dir"])
     item["analysis_dir"] = _abs(item.get("analysis_dir") or paths["analysis_dir"])
     item["pdf_path"] = _abs(item.get("pdf_path", "")) if item.get("pdf_path") else ""

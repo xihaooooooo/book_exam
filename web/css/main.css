@@ -152,6 +152,52 @@
   .qprog .seg.done { background: #C49A5E; }
   .qprog .qnum { font-family: "SF Mono","IBM Plex Mono",Menlo,monospace; font-size: 13px; color: #8B8680; margin-left: 10px; white-space: nowrap; }
   .qstem { font-size: 21px; font-weight: 600; line-height: 2.0; color: #141210; letter-spacing: 0.03em; margin-bottom: 28px; }
+  .media-list { display: grid; gap: 12px; margin: -12px 0 24px; }
+  .media-figure {
+    position: relative; overflow: hidden; border-radius: 10px; background: rgba(255,255,255,0.45);
+    border: 1px solid rgba(255,255,255,0.42);
+  }
+  .media-image { display: block; width: 100%; max-height: 420px; object-fit: contain; background: rgba(255,255,255,0.72); }
+  .media-figure figcaption { padding: 9px 12px; color: #6B645D; font-size: 12px; line-height: 1.55; border-top: 1px solid rgba(0,0,0,0.05); }
+  .media-zoom {
+    position: absolute; right: 10px; top: 10px; border: 1px solid rgba(0,0,0,0.08); border-radius: 8px;
+    background: rgba(255,255,255,0.88); color: #4E4740; padding: 6px 10px; font-size: 12px; cursor: pointer;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.08);
+  }
+  .media-zoom:hover { background: #fff; }
+  .media-viewer {
+    position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center;
+    padding: 28px; background: rgba(20,18,16,0.64);
+  }
+  .media-viewer-panel {
+    position: relative; max-width: min(960px, 94vw); max-height: 92vh; background: #F8F3EA;
+    border-radius: 10px; overflow: hidden; box-shadow: 0 24px 80px rgba(0,0,0,0.28);
+  }
+  .media-viewer-panel img { display: block; max-width: 94vw; max-height: 78vh; object-fit: contain; background: #fff; }
+  .media-viewer-close {
+    position: absolute; right: 10px; top: 10px; width: 34px; height: 34px; border: 0; border-radius: 50%;
+    background: rgba(255,255,255,0.9); color: #211B16; font-size: 22px; line-height: 1; cursor: pointer;
+  }
+  .media-viewer-caption { padding: 10px 14px; color: #4E4740; font-size: 13px; line-height: 1.5; }
+  .media-mermaid { padding: 14px; }
+  .media-mermaid .mermaid-diagram {
+    min-height: 120px; display: flex; align-items: center; justify-content: center;
+    overflow-x: auto; background: rgba(255,255,255,0.72); border-radius: 8px; padding: 12px;
+  }
+  .media-mermaid svg { max-width: 100%; height: auto; }
+  .media-mermaid .mermaid-error { color: #B55A4A; font-size: 13px; min-height: 64px; }
+  .media-canvas { padding: 14px; }
+  .canvas-preview { background: rgba(255,255,255,0.72); border-radius: 8px; overflow: hidden; }
+  .canvas-preview-head {
+    padding: 8px 12px; font-size: 12px; color: #6B645D; border-bottom: 1px solid rgba(0,0,0,0.05);
+    font-family: "SF Mono","IBM Plex Mono",Menlo,monospace;
+  }
+  .canvas-svg { display: block; width: 100%; aspect-ratio: 2 / 1; min-height: 180px; }
+  .canvas-edge line { stroke: #7A6B5A; stroke-width: 2; marker-end: url(#canvasArrow); }
+  .canvas-edge text { fill: #6B645D; font-size: 12px; paint-order: stroke; stroke: rgba(255,255,255,0.9); stroke-width: 4px; }
+  .canvas-node circle { fill: #F7EFE3; stroke: #C49A5E; stroke-width: 2; }
+  .canvas-node text { fill: #211B16; font-size: 12px; font-weight: 600; }
+  .canvas-preview-empty pre { margin: 0; padding: 12px; max-height: 220px; overflow: auto; font-size: 12px; color: #4E4740; }
   .opts { display: flex; flex-direction: column; gap: 10px; margin-bottom: 24px; }
   .opt {
     display: flex; align-items: center; gap: 14px;

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-07-01T16:39:25",
+  "updated_at": "2026-07-03T10:24:41",
   "runs": [
     {
       "run_id": "20260629_144637",
@@ -983,6 +983,259 @@
         "recommendation": {
           "json_path": "D:\\trae\\book_exam\\evals\\reports\\recommendation_eval_20260701_163925.json",
           "md_path": "D:\\trae\\book_exam\\evals\\reports\\recommendation_eval_20260701_163925.md",
+          "failure_count": 0
+        }
+      }
+    },
+    {
+      "run_id": "20260703_102441",
+      "created_at": "2026-07-03T10:24:41",
+      "summary": "总分 90%，出题 100%，判题 71%，推荐 100%；失败项 2 条，回退指标 4 个。",
+      "score": 0.9047619047619048,
+      "agent_report_json": "D:\\trae\\book_exam\\evals\\reports\\agent_eval_20260703_102441.json",
+      "agent_report_md": "D:\\trae\\book_exam\\evals\\reports\\agent_eval_20260703_102441.md",
+      "metrics": {
+        "generation.format_pass_rate": 1.0,
+        "generation.type_adherence_rate": 1.0,
+        "generation.difficulty_adherence_rate": 1.0,
+        "generation.answer_presence_rate": 1.0,
+        "generation.explanation_presence_rate": 1.0,
+        "generation.keyword_coverage_rate": 1.0,
+        "generation.latex_format_pass_rate": 1.0,
+        "generation.media_contract_pass_rate": 1.0,
+        "generation.mermaid_contract_pass_rate": 1.0,
+        "generation.canvas_contract_pass_rate": 1.0,
+        "generation.expected_media_presence_rate": 1.0,
+        "generation.visual_reference_pass_rate": 1.0,
+        "generation.readonly_media_pass_rate": 1.0,
+        "generation.media_description_pass_rate": 1.0,
+        "generation.duplicate_rate": 0.0,
+        "judge.objective_accuracy": 1.0,
+        "judge.subjective_agreement": 0.7142857142857143,
+        "judge.false_positive_rate": 0.0,
+        "judge.false_negative_rate": 0.2222222222222222,
+        "judge.error_type_valid_rate": 0.14285714285714285,
+        "judge.diagnosis_completeness": 0.14285714285714285,
+        "judge.fallback_pass_rate": 1.0,
+        "recommendation.bkt_monotonic_pass": 1.0,
+        "recommendation.weak_topic_hit_rate": 1.0,
+        "recommendation.mastered_retire_rate": 1.0,
+        "recommendation.recommendation_reason_rate": 1.0,
+        "recommendation.error_to_type_match_rate": 1.0,
+        "recommendation.delta_mastery_valid_rate": 1.0
+      },
+      "diffs": [
+        {
+          "name": "generation.answer_presence_rate",
+          "current": 1.0,
+          "previous": 1.0,
+          "delta": 0.0,
+          "status": "stable"
+        },
+        {
+          "name": "generation.canvas_contract_pass_rate",
+          "current": 1.0,
+          "previous": "",
+          "delta": "",
+          "status": "new"
+        },
+        {
+          "name": "generation.difficulty_adherence_rate",
+          "current": 1.0,
+          "previous": 0.8,
+          "delta": 0.19999999999999996,
+          "status": "improved"
+        },
+        {
+          "name": "generation.duplicate_rate",
+          "current": 0.0,
+          "previous": 0.0,
+          "delta": 0.0,
+          "status": "stable"
+        },
+        {
+          "name": "generation.expected_media_presence_rate",
+          "current": 1.0,
+          "previous": "",
+          "delta": "",
+          "status": "new"
+        },
+        {
+          "name": "generation.explanation_presence_rate",
+          "current": 1.0,
+          "previous": 1.0,
+          "delta": 0.0,
+          "status": "stable"
+        },
+        {
+          "name": "generation.format_pass_rate",
+          "current": 1.0,
+          "previous": 1.0,
+          "delta": 0.0,
+          "status": "stable"
+        },
+        {
+          "name": "generation.keyword_coverage_rate",
+          "current": 1.0,
+          "previous": "",
+          "delta": "",
+          "status": "new"
+        },
+        {
+          "name": "generation.latex_format_pass_rate",
+          "current": 1.0,
+          "previous": "",
+          "delta": "",
+          "status": "new"
+        },
+        {
+          "name": "generation.media_contract_pass_rate",
+          "current": 1.0,
+          "previous": "",
+          "delta": "",
+          "status": "new"
+        },
+        {
+          "name": "generation.media_description_pass_rate",
+          "current": 1.0,
+          "previous": "",
+          "delta": "",
+          "status": "new"
+        },
+        {
+          "name": "generation.mermaid_contract_pass_rate",
+          "current": 1.0,
+          "previous": "",
+          "delta": "",
+          "status": "new"
+        },
+        {
+          "name": "generation.readonly_media_pass_rate",
+          "current": 1.0,
+          "previous": "",
+          "delta": "",
+          "status": "new"
+        },
+        {
+          "name": "generation.type_adherence_rate",
+          "current": 1.0,
+          "previous": 1.0,
+          "delta": 0.0,
+          "status": "stable"
+        },
+        {
+          "name": "generation.visual_reference_pass_rate",
+          "current": 1.0,
+          "previous": "",
+          "delta": "",
+          "status": "new"
+        },
+        {
+          "name": "judge.diagnosis_completeness",
+          "current": 0.14285714285714285,
+          "previous": 0.8571428571428571,
+          "delta": -0.7142857142857142,
+          "status": "regressed"
+        },
+        {
+          "name": "judge.error_type_valid_rate",
+          "current": 0.14285714285714285,
+          "previous": 0.8571428571428571,
+          "delta": -0.7142857142857142,
+          "status": "regressed"
+        },
+        {
+          "name": "judge.fallback_pass_rate",
+          "current": 1.0,
+          "previous": 1.0,
+          "delta": 0.0,
+          "status": "stable"
+        },
+        {
+          "name": "judge.false_negative_rate",
+          "current": 0.2222222222222222,
+          "previous": 0.0,
+          "delta": 0.2222222222222222,
+          "status": "regressed"
+        },
+        {
+          "name": "judge.false_positive_rate",
+          "current": 0.0,
+          "previous": 0.0,
+          "delta": 0.0,
+          "status": "stable"
+        },
+        {
+          "name": "judge.objective_accuracy",
+          "current": 1.0,
+          "previous": 1.0,
+          "delta": 0.0,
+          "status": "stable"
+        },
+        {
+          "name": "judge.subjective_agreement",
+          "current": 0.7142857142857143,
+          "previous": 1.0,
+          "delta": -0.2857142857142857,
+          "status": "regressed"
+        },
+        {
+          "name": "recommendation.bkt_monotonic_pass",
+          "current": 1.0,
+          "previous": 1.0,
+          "delta": 0.0,
+          "status": "stable"
+        },
+        {
+          "name": "recommendation.delta_mastery_valid_rate",
+          "current": 1.0,
+          "previous": 1.0,
+          "delta": 0.0,
+          "status": "stable"
+        },
+        {
+          "name": "recommendation.error_to_type_match_rate",
+          "current": 1.0,
+          "previous": 1.0,
+          "delta": 0.0,
+          "status": "stable"
+        },
+        {
+          "name": "recommendation.mastered_retire_rate",
+          "current": 1.0,
+          "previous": 1.0,
+          "delta": 0.0,
+          "status": "stable"
+        },
+        {
+          "name": "recommendation.recommendation_reason_rate",
+          "current": 1.0,
+          "previous": 1.0,
+          "delta": 0.0,
+          "status": "stable"
+        },
+        {
+          "name": "recommendation.weak_topic_hit_rate",
+          "current": 1.0,
+          "previous": 1.0,
+          "delta": 0.0,
+          "status": "stable"
+        }
+      ],
+      "child_reports": {
+        "generation": {
+          "json_path": "D:\\trae\\book_exam\\evals\\reports\\generation_eval_20260703_102441.json",
+          "md_path": "D:\\trae\\book_exam\\evals\\reports\\generation_eval_20260703_102441.md",
+          "failure_count": 0
+        },
+        "judge": {
+          "json_path": "D:\\trae\\book_exam\\evals\\reports\\judge_eval_20260703_102441.json",
+          "md_path": "D:\\trae\\book_exam\\evals\\reports\\judge_eval_20260703_102441.md",
+          "failure_count": 2
+        },
+        "recommendation": {
+          "json_path": "D:\\trae\\book_exam\\evals\\reports\\recommendation_eval_20260703_102441.json",
+          "md_path": "D:\\trae\\book_exam\\evals\\reports\\recommendation_eval_20260703_102441.md",
           "failure_count": 0
         }
       }

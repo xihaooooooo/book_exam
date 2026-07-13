@@ -39,6 +39,7 @@ class JudgeCase:
     accepted_error_types: set[str]
     options: list[Any]
     explanation: str
+    media: list[Any]
     difficulty: str
     judge_path: str
 
@@ -59,6 +60,7 @@ class JudgeCase:
             accepted_error_types=accepted,
             options=list(data.get("options") or []),
             explanation=str(data.get("explanation", "")),
+            media=_normalize_media(data.get("media")),
             difficulty=str(data.get("difficulty", "")) or "medium",
             judge_path=str(data.get("judge_path", "")),
         )
@@ -72,6 +74,7 @@ class JudgeCase:
             "correct_answer": self.correct_answer,
             "student_answer": self.student_answer,
             "explanation": self.explanation,
+            "media": copy.deepcopy(self.media),
             "difficulty": self.difficulty,
         }
 
@@ -119,6 +122,10 @@ def load_judge_cases(path: str | Path) -> list[JudgeCase]:
     if not isinstance(data, list):
         raise ValueError(f"judge cases must be a list: {path}")
     return [JudgeCase.from_dict(item) for item in data]
+
+
+def _normalize_media(value: Any) -> list[Any]:
+    return copy.deepcopy(value) if isinstance(value, list) else []
 
 
 def evaluate_judge_results(

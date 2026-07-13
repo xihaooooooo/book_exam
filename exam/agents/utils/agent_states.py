@@ -63,7 +63,7 @@ class JudgeState(TypedDict):
     answers: list[dict]     # 输入+输出：每道题的完整数据
                             # 输入：question_type, student_answer, correct_answer,
                             #       stem, explanation, section_id, topic, difficulty,
-                            #       duration_sec, confidence
+                            #       duration_sec, confidence, media（可选）
                             # 输出（judge_all 填充）：is_correct, reason, method,
                             #       error_type, error_evidence, error_suggestion,
                             #       diagnosis_confidence（仅答错时）
