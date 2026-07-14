@@ -12,14 +12,17 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode
 from langgraph.types import Send
 
-from .generation import (
-    CHOICE_ANSWERS,
+from .chief_editor import (
     ExamPlan,
-    GenerationError,
     GenerationRequest,
-    QuestionDraft,
     QuestionTask,
+    build_exam_plan,
+    create_chief_editor_plan_messages,
+    create_chief_editor_research_messages,
+    parse_chief_editor_plan,
 )
+from .errors import GenerationError
+from .generation import CHOICE_ANSWERS, QuestionDraft
 from .models import Question, QuestionType
 
 
@@ -28,6 +31,7 @@ class GenerationState(TypedDict, total=False):
 
     request: GenerationRequest
     messages: Annotated[list[BaseMessage], operator.add]
+    research_summary: str
     plan: ExamPlan
     current_task: QuestionTask
     draft: QuestionDraft
@@ -38,8 +42,8 @@ class GenerationState(TypedDict, total=False):
 class ExamGraph:
     """出题图门面。"""
 
-    def __init__(self, content_tools: Sequence[BaseTool]):
-        self.graph = build_exam_graph(content_tools)
+    def __init__(self, chief_editor_model: Any, content_tools: Sequence[BaseTool]):
+        self.graph = build_exam_graph(chief_editor_model, content_tools)
 
     def generate(self, request: GenerationRequest) -> tuple[Question, ...]:
         final_state = self.graph.invoke({
@@ -50,21 +54,35 @@ class ExamGraph:
         return final_state["questions"]
 
 
-def build_exam_graph(content_tools: Sequence[BaseTool]):
+def build_exam_graph(chief_editor_model: Any, content_tools: Sequence[BaseTool]):
     """构建出题图：主编计划 -> 单题并发流水线 -> 终审整理。"""
+    chief_editor_research_model = chief_editor_model.bind_tools(list(content_tools))
+
     workflow = StateGraph(GenerationState)
-    workflow.add_node("chief_editor", _chief_editor)
+    workflow.add_node(
+        "chief_editor_research",
+        lambda state: _chief_editor_research(state, chief_editor_research_model),
+    )
     workflow.add_node("content_tools", ToolNode(content_tools))
+    workflow.add_node(
+        "chief_editor_plan",
+        lambda state: _chief_editor_plan(state, chief_editor_model),
+    )
     workflow.add_node("question_pipeline", _build_question_pipeline())
     workflow.add_node("final_editor", _final_editor)
 
-    workflow.add_edge(START, "chief_editor")
+    workflow.add_edge(START, "chief_editor_research")
     workflow.add_conditional_edges(
-        "chief_editor",
-        _route_after_chief_editor,
-        ["content_tools", "question_pipeline"],
+        "chief_editor_research",
+        _route_after_chief_editor_research,
+        ["content_tools", "chief_editor_plan"],
     )
-    workflow.add_edge("content_tools", "chief_editor")
+    workflow.add_edge("content_tools", "chief_editor_research")
+    workflow.add_conditional_edges(
+        "chief_editor_plan",
+        _fan_out_tasks,
+        ["question_pipeline"],
+    )
     workflow.add_edge("question_pipeline", "final_editor")
     workflow.add_edge("final_editor", END)
     return workflow.compile()
@@ -81,11 +99,11 @@ def _build_question_pipeline():
     return pipeline.compile()
 
 
-def _route_after_chief_editor(state: GenerationState):
+def _route_after_chief_editor_research(state: GenerationState):
     messages = state.get("messages") or []
     if messages and getattr(messages[-1], "tool_calls", None):
         return "content_tools"
-    return _fan_out_tasks(state)
+    return "chief_editor_plan"
 
 
 def _fan_out_tasks(state: GenerationState):
@@ -132,8 +150,8 @@ def _final_editor(state: GenerationState) -> dict[str, Any]:
     if extra_task_ids:
         raise GenerationError(f"存在未在计划中的题目任务: {sorted(extra_task_ids)}")
 
-    questions: list[Question] = []
-    for index, task in enumerate(plan.tasks, start=1):
+    accepted: list[tuple[QuestionTask, QuestionDraft]] = []
+    for task in plan.tasks:
         draft = drafts_by_task.get(task.task_id)
         if draft is None:
             raise GenerationError(f"任务 {task.task_id} 没有生成题目")
@@ -141,7 +159,10 @@ def _final_editor(state: GenerationState) -> dict[str, Any]:
             raise GenerationError(f"任务 {task.task_id} 生成题型不一致")
         if draft.difficulty != task.difficulty:
             raise GenerationError(f"任务 {task.task_id} 生成难度不一致")
+        accepted.append((task, draft))
 
+    questions: list[Question] = []
+    for index, (task, draft) in enumerate(_sort_final_drafts(accepted), start=1):
         question = draft.to_question(f"q-{index:03d}")
         if plan.request.question_types and question.question_type not in plan.request.question_types:
             raise GenerationError(f"题目 {question.id} 的题型不在请求范围内")
@@ -157,13 +178,103 @@ def _final_editor(state: GenerationState) -> dict[str, Any]:
     return {"questions": tuple(questions)}
 
 
-def _chief_editor(state: GenerationState) -> dict[str, Any]:
-    raise NotImplementedError("主编节点尚未接入：需要根据请求、教材和画像产出 ExamPlan")
+def _sort_final_drafts(items: list[tuple[QuestionTask, QuestionDraft]]) -> list[tuple[QuestionTask, QuestionDraft]]:
+    difficulty_order = {
+        "easy": 0,
+        "medium": 1,
+        "hard": 2,
+    }
+    return sorted(
+        items,
+        key=lambda item: (
+            item[0].source,
+            difficulty_order.get(item[0].difficulty.value, 99),
+            item[0].task_id,
+        ),
+    )
+
+
+def _chief_editor_research(state: GenerationState, chief_editor_model: Any) -> dict[str, Any]:
+    request = state.get("request")
+    if request is None:
+        raise GenerationError("主编节点缺少 GenerationRequest")
+
+    messages = state.get("messages") or create_chief_editor_research_messages(request)
+    response = chief_editor_model.invoke(messages)
+    if state.get("messages"):
+        result = {"messages": [response]}
+    else:
+        result = {"messages": [*messages, response]}
+    if not getattr(response, "tool_calls", None):
+        result["research_summary"] = _message_content(response)
+    return result
+
+
+def _message_content(message: BaseMessage) -> str:
+    content = getattr(message, "content", "")
+    if isinstance(content, str):
+        return content.strip()
+    return str(content).strip()
+
+
+def _chief_editor_plan(state: GenerationState, chief_editor_model: Any) -> dict[str, Any]:
+    request = state.get("request")
+    if request is None:
+        raise GenerationError("主编计划节点缺少 GenerationRequest")
+    research_summary = state.get("research_summary", "").strip()
+    if not research_summary:
+        raise GenerationError("主编计划节点缺少 research_summary")
+
+    response = chief_editor_model.invoke(create_chief_editor_plan_messages(request, research_summary))
+    chief_plan = parse_chief_editor_plan(_message_content(response))
+    return {"plan": build_exam_plan(request, chief_plan)}
 
 
 def _question_writer(state: GenerationState) -> dict[str, Any]:
-    raise NotImplementedError("单题生成节点尚未接入：需要根据教材上下文产出 QuestionDraft")
+    task = state.get("current_task")
+    if task is None:
+        raise GenerationError("单题生成节点缺少 QuestionTask")
+    if task.question_type != QuestionType.CHOICE:
+        raise GenerationError(f"临时单题生成器只支持 choice: {task.question_type.value}")
+
+    draft = QuestionDraft(
+        task_id=task.task_id,
+        question_type=task.question_type,
+        stem=f"以下关于“{task.topic}”的说法，哪一项是正确的？",
+        options=(
+            "A. 这是与该知识点直接相关的正确表述",
+            "B. 这是一个常见混淆项",
+            "C. 这是一个无关概念",
+            "D. 这是一个过度泛化的说法",
+        ),
+        correct_answer="A",
+        source=task.source,
+        topic=task.topic,
+        difficulty=task.difficulty,
+        explanation=f"本题根据 {task.source} 的“{task.topic}”生成，当前为临时模板题。",
+    )
+    return {"draft": draft}
 
 
 def _quality_reviewer(state: GenerationState) -> dict[str, Any]:
-    raise NotImplementedError("质检节点尚未接入：通过后需要返回 drafts=(QuestionDraft,)")
+    draft = state.get("draft")
+    if draft is None:
+        raise GenerationError("质检节点缺少 QuestionDraft")
+    _review_question_draft(draft)
+    return {"drafts": (draft,)}
+
+
+def _review_question_draft(draft: QuestionDraft) -> None:
+    if not draft.task_id.strip():
+        raise GenerationError("题目草稿缺少 task_id")
+    if not draft.stem.strip():
+        raise GenerationError(f"任务 {draft.task_id} 的题干为空")
+    if not draft.source.strip():
+        raise GenerationError(f"任务 {draft.task_id} 的 source 为空")
+    if not draft.topic.strip():
+        raise GenerationError(f"任务 {draft.task_id} 的 topic 为空")
+    if draft.question_type == QuestionType.CHOICE:
+        if len(draft.options) != 4:
+            raise GenerationError(f"任务 {draft.task_id} 的选择题必须有 4 个选项")
+        if draft.correct_answer.strip().upper() not in CHOICE_ANSWERS:
+            raise GenerationError(f"任务 {draft.task_id} 的选择题答案必须是 A/B/C/D")
