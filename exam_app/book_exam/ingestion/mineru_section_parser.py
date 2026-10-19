@@ -5,10 +5,10 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from .mineru_page_parser import (
-    MinerUPageParsingError,
-    _load_content_blocks,
-    _read_block_text,
+from .mineru_content import (
+    MinerUContentParsingError,
+    load_mineru_content_blocks,
+    read_mineru_block_text,
 )
 from .pdf_chunker import PdfChunk
 
@@ -50,10 +50,10 @@ def parse_mineru_book_sections(
         if extracted_directory.parent != extracted_root:
             raise ValueError("MinerU chunk data IDs must be directory names")
         page_count = chunk.end_page - chunk.start_page + 1
-        for block in _load_content_blocks(extracted_directory):
+        for block in load_mineru_content_blocks(extracted_directory):
             page_idx = block.get("page_idx")
             if type(page_idx) is not int or not 0 <= page_idx < page_count:
-                raise MinerUPageParsingError("MinerU content block has an invalid page_idx")
+                raise MinerUContentParsingError("MinerU content block has an invalid page_idx")
             blocks.append((chunk.start_page + page_idx, block))
 
     records: list[MinerUSection] = []
@@ -100,7 +100,7 @@ def parse_mineru_book_sections(
             raise MinerUSectionParsingError("MinerU content blocks are not in page order")
         last_block_page = page
         block_type = block.get("type")
-        text = _read_block_text(block)
+        text = read_mineru_block_text(block)
         if not text:
             continue
         is_heading = (

@@ -3,7 +3,7 @@ from .mineru_archive import (
     extract_mineru_archive,
     extract_mineru_results,
 )
-from .mineru_book_importer import MinerUBookImportError, import_mineru_book_pages
+from .mineru_book_importer import import_mineru_book_sections
 from .mineru_client import (
     MinerUBatchStatus,
     MinerUClient,
@@ -12,20 +12,16 @@ from .mineru_client import (
     MinerUJobStatus,
     MinerUStatus,
 )
-from .mineru_page_parser import (
-    MinerUPage,
-    MinerUPageParsingError,
-    parse_mineru_chunk_pages,
-)
+from .mineru_content import MinerUContentParsingError
 from .mineru_section_parser import (
     MinerUSection,
     MinerUSectionParsingError,
     parse_mineru_book_sections,
 )
-from .mineru_page_writer import (
-    MinerUPageWriteResult,
-    MinerUPageWritingError,
-    write_mineru_pages,
+from .mineru_section_writer import (
+    MinerUSectionWriteResult,
+    MinerUSectionWritingError,
+    write_mineru_sections,
 )
 from .pdf_chunker import PdfChunk, PdfChunker, PdfChunkingError
 from .pdf_store import BookRecord, InvalidPdfError, PdfStore
@@ -35,17 +31,15 @@ __all__ = [
     "InvalidPdfError",
     "MinerUArchiveError",
     "MinerUBatchStatus",
-    "MinerUBookImportError",
+    "MinerUContentParsingError",
     "MinerUClient",
     "MinerUError",
     "MinerUJob",
     "MinerUJobStatus",
-    "MinerUPage",
-    "MinerUPageParsingError",
-    "MinerUPageWriteResult",
-    "MinerUPageWritingError",
     "MinerUSection",
     "MinerUSectionParsingError",
+    "MinerUSectionWriteResult",
+    "MinerUSectionWritingError",
     "MinerUStatus",
     "PdfChunk",
     "PdfChunker",
@@ -53,8 +47,7 @@ __all__ = [
     "PdfStore",
     "extract_mineru_archive",
     "extract_mineru_results",
-    "import_mineru_book_pages",
-    "parse_mineru_chunk_pages",
+    "import_mineru_book_sections",
     "parse_mineru_book_sections",
-    "write_mineru_pages",
+    "write_mineru_sections",
 ]
