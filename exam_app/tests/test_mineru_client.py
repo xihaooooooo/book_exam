@@ -6,7 +6,7 @@ from pathlib import Path
 import httpx
 
 from book_exam import PdfChunk
-from book_exam.mineru_client import (
+from book_exam.ingestion.mineru_client import (
     MinerUBatchStatus,
     MinerUClient,
     MinerUJob,

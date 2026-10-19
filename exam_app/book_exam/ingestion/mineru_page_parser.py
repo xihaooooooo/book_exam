@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
@@ -45,6 +46,26 @@ def parse_mineru_chunk_pages(
     if chunk.start_page < 1 or chunk.end_page < chunk.start_page:
         raise ValueError("PDF chunk has an invalid page range")
 
+    content_blocks = _load_content_blocks(extracted_directory)
+    page_count = chunk.end_page - chunk.start_page + 1
+    fragments: list[list[str]] = [[] for _ in range(page_count)]
+    for block in content_blocks:
+        page_idx = block.get("page_idx")
+        if type(page_idx) is not int or not 0 <= page_idx < page_count:
+            raise MinerUPageParsingError("MinerU content block has an invalid page_idx")
+
+        block_text = _read_block_text(block)
+        if block_text:
+            fragments[page_idx].append(block_text)
+
+    return tuple(
+        MinerUPage(chunk.start_page + index, "\n\n".join(page_fragments))
+        for index, page_fragments in enumerate(fragments)
+    )
+
+
+def _load_content_blocks(extracted_directory: Path) -> Iterator[dict[str, object]]:
+    """Load and structurally validate a chunk's ordered MinerU blocks."""
     extracted_directory = extracted_directory.resolve()
     if not extracted_directory.is_dir():
         raise MinerUPageParsingError("MinerU chunk result directory is missing")
@@ -65,24 +86,10 @@ def parse_mineru_chunk_pages(
     if not isinstance(content_value, list):
         raise MinerUPageParsingError("MinerU content_list.json must be a list")
 
-    page_count = chunk.end_page - chunk.start_page + 1
-    fragments: list[list[str]] = [[] for _ in range(page_count)]
     for block_value in cast(list[object], content_value):
         if not isinstance(block_value, dict):
             raise MinerUPageParsingError("MinerU content block must be an object")
-        block = cast(dict[str, object], block_value)
-        page_idx = block.get("page_idx")
-        if type(page_idx) is not int or not 0 <= page_idx < page_count:
-            raise MinerUPageParsingError("MinerU content block has an invalid page_idx")
-
-        block_text = _read_block_text(block)
-        if block_text:
-            fragments[page_idx].append(block_text)
-
-    return tuple(
-        MinerUPage(chunk.start_page + index, "\n\n".join(page_fragments))
-        for index, page_fragments in enumerate(fragments)
-    )
+        yield cast(dict[str, object], block_value)
 
 
 def _read_block_text(block: dict[str, object]) -> str:

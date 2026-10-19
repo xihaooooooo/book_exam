@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from book_exam.pdf_store import InvalidPdfError, PdfStore
+from book_exam.ingestion.pdf_store import InvalidPdfError, PdfStore
 
 
 class PdfStoreTests(unittest.TestCase):
