@@ -12,6 +12,7 @@ from book_exam import (
     write_mineru_sections,
 )
 from book_exam.ingestion.mineru_section_parser import MinerUSection
+from book_exam.search import load_simple_extension
 
 
 class MinerUBookImporterTests(unittest.TestCase):
@@ -40,6 +41,7 @@ class MinerUBookImporterTests(unittest.TestCase):
 
         self.assertEqual(result.section_count, 1)
         self.assertEqual(self._read_sections(), [("1.1", 1, 3, "跨页小节\n\n跨块小节")])
+        self.assertEqual(self._match_ids('"跨块"'), ["1.1"])
 
     def test_reimport_replaces_all_old_sections(self) -> None:
         write_mineru_sections(
@@ -61,6 +63,8 @@ class MinerUBookImporterTests(unittest.TestCase):
         import_mineru_book_sections(self.book_directory, (chunk,))
 
         self.assertEqual(self._read_sections(), [("1.1", 1, 1, "新正文")])
+        self.assertEqual(self._match_ids('"新正文"'), ["1.1"])
+        self.assertEqual(self._match_ids('"旧正文"'), [])
 
     def test_parse_failure_preserves_existing_sections(self) -> None:
         write_mineru_sections(
@@ -120,3 +124,15 @@ class MinerUBookImporterTests(unittest.TestCase):
             return connection.execute(
                 "SELECT id, page_start, page_end, text FROM sections ORDER BY sort_order"
             ).fetchall()
+
+    def _match_ids(self, phrase: str) -> list[str]:
+        with closing(sqlite3.connect(self.book_directory / "sections.db")) as connection:
+            load_simple_extension(connection)
+            return [
+                row[0]
+                for row in connection.execute(
+                    "SELECT id FROM sections_fts WHERE sections_fts MATCH ? "
+                    "ORDER BY rowid",
+                    (phrase,),
+                )
+            ]

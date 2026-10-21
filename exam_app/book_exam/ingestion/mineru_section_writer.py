@@ -6,6 +6,7 @@ from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
 
+from ..search import SimpleExtensionError, load_simple_extension, rebuild_section_index
 from .mineru_section_parser import MinerUSection
 
 
@@ -61,6 +62,7 @@ def write_mineru_sections(
         with closing(
             sqlite3.connect(database_path, isolation_level=None)
         ) as connection:
+            load_simple_extension(connection)
             connection.execute("BEGIN IMMEDIATE")
             try:
                 connection.execute(
@@ -97,11 +99,12 @@ def write_mineru_sections(
                         for section in sections
                     ),
                 )
+                rebuild_section_index(connection)
                 connection.commit()
-            except sqlite3.Error:
+            except (sqlite3.Error, SimpleExtensionError):
                 connection.rollback()
                 raise
-    except sqlite3.Error as error:
+    except (sqlite3.Error, SimpleExtensionError) as error:
         raise MinerUSectionWritingError(
             f"Unable to write MinerU sections: {error}"
         ) from error
