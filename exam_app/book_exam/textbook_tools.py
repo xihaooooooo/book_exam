@@ -1,16 +1,7 @@
 import sqlite3
-from dataclasses import dataclass
-from pathlib import Path
 
+from .book_context import BookContext
 from .search import SimpleExtensionError, load_simple_extension
-
-
-@dataclass(frozen=True, slots=True)
-class BookContext:
-    """Identifies the stored textbook that textbook tools operate on."""
-
-    book_id: str
-    database_path: Path
 
 
 def get_section_text(context: BookContext, section_id: str) -> dict[str, object]:

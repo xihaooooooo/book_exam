@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest import mock
 
 from book_exam import textbook_tools
+from book_exam.book_context import BookContext
 from book_exam.search import (
     SimpleExtensionError,
     load_simple_extension,
@@ -18,7 +19,6 @@ from book_exam.textbook_tools import (
     GET_SURROUNDING_CONTEXT_TOOL,
     PEEK_SECTION_TOOL,
     SEARCH_KEYWORD_TOOL,
-    BookContext,
     get_section_text,
     get_surrounding_context,
     peek_section,
