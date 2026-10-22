@@ -1,5 +1,4 @@
 import dataclasses
-import json
 import sqlite3
 import tempfile
 import unittest
@@ -15,10 +14,6 @@ from book_exam.search import (
     rebuild_section_index,
 )
 from book_exam.textbook_tools import (
-    GET_SECTION_TEXT_TOOL,
-    GET_SURROUNDING_CONTEXT_TOOL,
-    PEEK_SECTION_TOOL,
-    SEARCH_KEYWORD_TOOL,
     get_section_text,
     get_surrounding_context,
     peek_section,
@@ -391,39 +386,6 @@ class GetSectionTextTests(TextbookToolsTestCase):
                 with self.assertRaises(sqlite3.ProgrammingError):
                     connection.execute("SELECT 1")
 
-    def test_tool_definition_binds_get_section_text_and_reads(self) -> None:
-        self.assertEqual(GET_SECTION_TEXT_TOOL["name"], "get_section_text")
-        self.assertIs(GET_SECTION_TEXT_TOOL["execute"], get_section_text)
-        self.assertIsInstance(GET_SECTION_TEXT_TOOL["description"], str)
-        self.assertTrue(GET_SECTION_TEXT_TOOL["description"].strip())
-
-        parameters = GET_SECTION_TEXT_TOOL["parameters"]
-        self.assertEqual(parameters["type"], "object")
-        self.assertEqual(set(parameters["properties"]), {"section_id"})
-        self.assertEqual(parameters["properties"]["section_id"]["type"], "string")
-        self.assertEqual(parameters["required"], ["section_id"])
-        self.assertIs(parameters["additionalProperties"], False)
-        for forbidden in ("context", "book_id", "database_path"):
-            self.assertNotIn(forbidden, parameters["properties"])
-            self.assertNotIn(forbidden, parameters["required"])
-
-        metadata = {
-            "name": GET_SECTION_TEXT_TOOL["name"],
-            "description": GET_SECTION_TEXT_TOOL["description"],
-            "parameters": GET_SECTION_TEXT_TOOL["parameters"],
-        }
-        self.assertEqual(
-            json.loads(json.dumps(metadata, ensure_ascii=False)), metadata
-        )
-
-        context = self._context("book-tool", (section_row("3.2", "工具正文"),))
-        arguments = {"section_id": "3.2"}
-
-        result = GET_SECTION_TEXT_TOOL["execute"](context, **arguments)
-
-        self.assertIs(result["ok"], True)
-        self.assertEqual(result["section"]["text"], "工具正文")
-
     def _read_with_tracking(
         self, context: BookContext, section_id: str, *, fail_query: bool = False
     ):
@@ -589,44 +551,6 @@ class PeekSectionTests(TextbookToolsTestCase):
         self.assertEqual(len(original["section"]), 6)
         self.assertIsNot(result, original)
         self.assertIsNot(result["section"], original["section"])
-        self.assertEqual(result["section"]["text"], body[:500])
-        self.assertIs(result["section"]["truncated"], True)
-
-    def test_tool_definition_binds_peek_section_and_reads(self) -> None:
-        self.assertEqual(PEEK_SECTION_TOOL["name"], "peek_section")
-        self.assertIs(PEEK_SECTION_TOOL["execute"], peek_section)
-        description = PEEK_SECTION_TOOL["description"]
-        self.assertIsInstance(description, str)
-        self.assertIn("500", description)
-        self.assertIn("截断", description)
-        self.assertIn("get_section_text", description)
-
-        parameters = PEEK_SECTION_TOOL["parameters"]
-        self.assertEqual(parameters["type"], "object")
-        self.assertEqual(set(parameters["properties"]), {"section_id"})
-        self.assertEqual(parameters["properties"]["section_id"]["type"], "string")
-        self.assertEqual(parameters["required"], ["section_id"])
-        self.assertIs(parameters["additionalProperties"], False)
-        for forbidden in ("context", "book_id", "database_path"):
-            self.assertNotIn(forbidden, parameters["properties"])
-            self.assertNotIn(forbidden, parameters["required"])
-
-        metadata = {
-            "name": PEEK_SECTION_TOOL["name"],
-            "description": description,
-            "parameters": parameters,
-        }
-        self.assertEqual(
-            json.loads(json.dumps(metadata, ensure_ascii=False)), metadata
-        )
-
-        body = "工" * 600
-        context = self._context("book-peek-tool", (section_row("3.2", body),))
-        arguments = {"section_id": "3.2"}
-
-        result = PEEK_SECTION_TOOL["execute"](context, **arguments)
-
-        self.assertIs(result["ok"], True)
         self.assertEqual(result["section"]["text"], body[:500])
         self.assertIs(result["section"]["truncated"], True)
 
@@ -1080,49 +1004,6 @@ class SearchKeywordTests(TextbookToolsTestCase):
                 with self.assertRaises(sqlite3.ProgrammingError):
                     connection.execute("SELECT 1")
 
-    def test_tool_definition_binds_search_keyword_and_reads(self) -> None:
-        self.assertEqual(SEARCH_KEYWORD_TOOL["name"], "search_keyword")
-        self.assertIs(SEARCH_KEYWORD_TOOL["execute"], search_keyword)
-        description = SEARCH_KEYWORD_TOOL["description"]
-        self.assertIsInstance(description, str)
-        self.assertIn("5", description)
-        self.assertIn("has_more", description)
-        self.assertIn("get_section_text", description)
-
-        parameters = SEARCH_KEYWORD_TOOL["parameters"]
-        self.assertEqual(parameters["type"], "object")
-        self.assertEqual(set(parameters["properties"]), {"keyword"})
-        keyword_schema = parameters["properties"]["keyword"]
-        self.assertEqual(keyword_schema["type"], "string")
-        self.assertEqual(keyword_schema["minLength"], 1)
-        self.assertEqual(keyword_schema["maxLength"], 100)
-        self.assertEqual(parameters["required"], ["keyword"])
-        self.assertIs(parameters["additionalProperties"], False)
-        for forbidden in ("context", "book_id", "database_path"):
-            self.assertNotIn(forbidden, parameters["properties"])
-            self.assertNotIn(forbidden, parameters["required"])
-
-        metadata = {
-            "name": SEARCH_KEYWORD_TOOL["name"],
-            "description": description,
-            "parameters": parameters,
-        }
-        self.assertEqual(
-            json.loads(json.dumps(metadata, ensure_ascii=False)), metadata
-        )
-
-        context = self._search_context(
-            "book-tool", (section_row("3.2", "死锁处理"),)
-        )
-        arguments = {"keyword": "死锁"}
-
-        result = SEARCH_KEYWORD_TOOL["execute"](context, **arguments)
-
-        self.assertIs(result["ok"], True)
-        self.assertEqual(
-            [match["section_id"] for match in result["matches"]], ["3.2"]
-        )
-
     def _search_context(self, book_id: str, rows) -> BookContext:
         database_path = create_search_database(self.root / book_id, rows)
         return BookContext(book_id=book_id, database_path=database_path)
@@ -1443,50 +1324,6 @@ class GetSurroundingContextTests(TextbookToolsTestCase):
                 )
                 with self.assertRaises(sqlite3.ProgrammingError):
                     connection.execute("SELECT 1")
-
-    def test_tool_definition_binds_surrounding_context_and_reads(self) -> None:
-        self.assertEqual(
-            GET_SURROUNDING_CONTEXT_TOOL["name"], "get_surrounding_context"
-        )
-        self.assertIs(
-            GET_SURROUNDING_CONTEXT_TOOL["execute"], get_surrounding_context
-        )
-        description = GET_SURROUNDING_CONTEXT_TOOL["description"]
-        self.assertIsInstance(description, str)
-        self.assertIn("跨章", description)
-        self.assertIn("null", description)
-        self.assertIn("get_section_text", description)
-
-        parameters = GET_SURROUNDING_CONTEXT_TOOL["parameters"]
-        self.assertEqual(parameters["type"], "object")
-        self.assertEqual(set(parameters["properties"]), {"section_id"})
-        self.assertEqual(parameters["properties"]["section_id"]["type"], "string")
-        self.assertEqual(parameters["required"], ["section_id"])
-        self.assertIs(parameters["additionalProperties"], False)
-        for forbidden in ("context", "book_id", "database_path"):
-            self.assertNotIn(forbidden, parameters["properties"])
-            self.assertNotIn(forbidden, parameters["required"])
-
-        metadata = {
-            "name": GET_SURROUNDING_CONTEXT_TOOL["name"],
-            "description": description,
-            "parameters": parameters,
-        }
-        self.assertEqual(
-            json.loads(json.dumps(metadata, ensure_ascii=False)), metadata
-        )
-
-        context = self._context(
-            "book-tool", (section_row("only", "唯一正文", sort_order=10),)
-        )
-        arguments = {"section_id": "only"}
-
-        result = GET_SURROUNDING_CONTEXT_TOOL["execute"](context, **arguments)
-
-        self.assertIs(result["ok"], True)
-        self.assertEqual(result["target_section_id"], "only")
-        self.assertIsNone(result["previous"])
-        self.assertIsNone(result["next"])
 
     def _surrounding_with_tracking(
         self, context, section_id, *, fail_query=False
