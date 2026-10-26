@@ -168,6 +168,67 @@ class ToolCallArgumentTests(unittest.TestCase):
         self.assertEqual(call.arguments["nested"], {"x": [1, 2]})
 
 
+class ToolCallArgumentsErrorTests(unittest.TestCase):
+    def test_defaults_to_none_and_keeps_positional_field_order(self) -> None:
+        call = ToolCall(
+            "call-1",
+            "lookup",
+            {"city": "上海"},
+            "opaque-thought-signature",
+            "weather",
+        )
+
+        self.assertEqual(call.id, "call-1")
+        self.assertEqual(call.name, "lookup")
+        self.assertEqual(call.arguments, {"city": "上海"})
+        self.assertEqual(call.thought_signature, "opaque-thought-signature")
+        self.assertEqual(call.namespace, "weather")
+        self.assertIsNone(call.arguments_error)
+
+    def test_preserves_the_error_text_verbatim(self) -> None:
+        error = '  Expecting "," delimiter: line 1 column 10 (char 9)\n\t'
+        call = ToolCall(
+            id="call-1",
+            name="lookup",
+            arguments={},
+            arguments_error=error,
+        )
+
+        self.assertEqual(call.arguments_error, error)
+
+    def test_rejects_non_string_error_values(self) -> None:
+        invalid_values = (
+            1,
+            0,
+            True,
+            False,
+            1.5,
+            b"error",
+            ["error"],
+            {"message": "error"},
+        )
+        for arguments_error in invalid_values:
+            with self.subTest(arguments_error=arguments_error):
+                with self.assertRaises(MessageError):
+                    ToolCall(
+                        id="call-1",
+                        name="lookup",
+                        arguments={},
+                        arguments_error=arguments_error,
+                    )
+
+    def test_still_requires_an_arguments_dictionary(self) -> None:
+        for arguments in ('{"city": "上海"}', "{}", b"{}", None, ["city"], "city"):
+            with self.subTest(arguments=arguments):
+                with self.assertRaises(MessageError):
+                    ToolCall(
+                        id="call-1",
+                        name="lookup",
+                        arguments=arguments,
+                        arguments_error="arguments could not be parsed",
+                    )
+
+
 class UsageTests(unittest.TestCase):
     def test_keeps_zero_and_unknown_counts(self) -> None:
         usage = Usage(

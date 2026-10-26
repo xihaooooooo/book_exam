@@ -92,7 +92,12 @@ class ThinkingContent:
 
 @dataclass(frozen=True, slots=True)
 class ToolCall:
-    """A tool call requested by an assistant message."""
+    """A tool call requested by an assistant message.
+
+    ``arguments_error`` carries internal argument-parse error information. A
+    later run loop should check ``arguments_error is not None`` and block
+    execution of the corresponding tool.
+    """
 
     type: Literal["toolCall"] = field(init=False, default="toolCall")
     id: str
@@ -100,10 +105,15 @@ class ToolCall:
     arguments: dict[str, Any]
     thought_signature: str | None = None
     namespace: str | None = None
+    arguments_error: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.arguments, dict):
             raise MessageError("arguments must be a parameter dictionary")
+        if self.arguments_error is not None and not isinstance(
+            self.arguments_error, str
+        ):
+            raise MessageError("arguments_error must be a string or None")
 
 
 ContentBlock: TypeAlias = TextContent | ImageContent | ThinkingContent | ToolCall

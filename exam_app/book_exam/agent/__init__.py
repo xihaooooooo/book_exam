@@ -1,6 +1,7 @@
 """Agent protocol package."""
 
 from .context import Context, ContextError
+from .deepseek_request import DeepSeekRequestError, build_deepseek_request
 from .messages import (
     AssistantMessage,
     ImageContent,
@@ -26,6 +27,7 @@ __all__ = [
     "AssistantMessage",
     "Context",
     "ContextError",
+    "DeepSeekRequestError",
     "ImageContent",
     "Message",
     "MessageError",
@@ -39,4 +41,5 @@ __all__ = [
     "ToolResultMessage",
     "Usage",
     "UserMessage",
+    "build_deepseek_request",
 ]

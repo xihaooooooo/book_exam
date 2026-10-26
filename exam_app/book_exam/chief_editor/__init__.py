@@ -5,6 +5,7 @@ from .plan import (
     ChiefEditorPlanError,
     QuestionTask,
 )
+from .prompt import CHIEF_EDITOR_SYSTEM_PROMPT
 from .quota import (
     ChiefEditorQuota,
     calculate_quota,
@@ -15,6 +16,7 @@ from .request import (
 )
 
 __all__ = [
+    "CHIEF_EDITOR_SYSTEM_PROMPT",
     "ChiefEditorPlan",
     "ChiefEditorPlanError",
     "ChiefEditorQuota",

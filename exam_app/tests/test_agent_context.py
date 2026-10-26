@@ -6,6 +6,7 @@ from book_exam.agent import (
     Context,
     ContextError,
     TextContent,
+    ToolCall,
     ToolDefinition,
     ToolExecutionResult,
     ToolResultMessage,
@@ -111,6 +112,30 @@ class ContextTests(unittest.TestCase):
             with self.subTest(tool=type(tool).__name__):
                 with self.assertRaises(ContextError):
                     Context(messages=[], tools=[tool])
+
+    def test_preserves_tool_call_argument_errors(self) -> None:
+        error = '  Expecting "," delimiter: line 1 column 10 (char 9)\n'
+        call = ToolCall(
+            id="call-1",
+            name="read_section",
+            arguments={},
+            arguments_error=error,
+        )
+        message = AssistantMessage(
+            content=[call],
+            api="openai-completions",
+            provider="openai",
+            model="test-model",
+            stop_reason="toolUse",
+        )
+
+        context = Context(messages=[message])
+
+        preserved = context.messages[0].content[0]
+        self.assertIsInstance(preserved, ToolCall)
+        self.assertIs(preserved, call)
+        self.assertEqual(preserved.arguments_error, error)
+        self.assertEqual(preserved.arguments, {})
 
     def test_uses_the_existing_agent_tool_definition(self) -> None:
         agent_tool = AgentTool(definition=_definition(), handler=_handler)
