@@ -222,48 +222,6 @@ class RunAgentLoopTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(tool_result.tool_call_id, "call-1")
         self.assertIs(run.messages[2], replies[1])
 
-    async def test_returns_timed_out_before_the_follow_up_model_call(
-        self,
-    ) -> None:
-        handler = mock.AsyncMock(
-            return_value=ToolExecutionResult(
-                content=(TextContent(text=SECTION_TEXT),),
-            )
-        )
-        tool = AgentTool(definition=section_definition(), handler=handler)
-        initial = UserMessage(
-            content=(TextContent(text="读取教材 3.2 节并总结。"),)
-        )
-        first_reply = assistant_message(
-            (
-                ToolCall(
-                    id="call-1",
-                    name="get_section_text",
-                    arguments={"section_id": "3.2"},
-                ),
-            ),
-            "toolUse",
-        )
-        complete = mock.AsyncMock(return_value=first_reply)
-
-        with mock.patch(
-            "book_exam.agent.loop.monotonic",
-            side_effect=(0.0, 0.0, 100.0),
-        ):
-            run = await run_agent_loop(
-                (initial,),
-                tools=(tool,),
-                complete=complete,
-                timeout_seconds=10.0,
-            )
-
-        self.assertEqual(run.status, "timedOut")
-        self.assertEqual(run.rounds, 1)
-        self.assertEqual(complete.await_count, 1)
-        self.assertEqual(len(run.messages), 2)
-        self.assertIs(run.messages[0], first_reply)
-        self.assertIsInstance(run.messages[1], ToolResultMessage)
-
     async def test_rejects_a_pending_reply_before_it_is_recorded(self) -> None:
         handler = mock.AsyncMock()
         tool = AgentTool(definition=section_definition(), handler=handler)
@@ -335,7 +293,7 @@ class RunAgentLoopTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(complete.await_count, 1)
         handler.assert_not_awaited()
 
-    async def test_rejects_invalid_run_bounds(self) -> None:
+    async def test_rejects_invalid_max_rounds(self) -> None:
         initial = UserMessage(content=(TextContent(text="读取教材。"),))
         complete = mock.AsyncMock()
 
@@ -346,15 +304,6 @@ class RunAgentLoopTests(unittest.IsolatedAsyncioTestCase):
                         (initial,),
                         complete=complete,
                         max_rounds=value,
-                    )
-
-        for value in (0, -1.0, float("inf"), "10"):
-            with self.subTest(timeout_seconds=value):
-                with self.assertRaises(ValueError):
-                    await run_agent_loop(
-                        (initial,),
-                        complete=complete,
-                        timeout_seconds=value,
                     )
 
         complete.assert_not_awaited()

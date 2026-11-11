@@ -1,8 +1,6 @@
 """Drive the agent's model/tool loop with an injected completion callable."""
 
-import math
 from dataclasses import dataclass
-from time import monotonic
 from typing import Awaitable, Callable, Literal, Sequence
 
 from .context import Context
@@ -15,9 +13,9 @@ from .messages import (
 )
 from .tools import AgentTool, ToolError, ToolExecutionResult
 
-AgentRunStatus = Literal["limitReached", "timedOut"]
+AgentRunStatus = Literal["limitReached"]
 
-_STATUS_VALUES = frozenset({"limitReached", "timedOut"})
+_STATUS_VALUES = frozenset({"limitReached"})
 
 
 class AgentRunError(ValueError):
@@ -46,29 +44,6 @@ def _validate_max_rounds(max_rounds: object) -> int:
     ):
         raise ValueError("max_rounds must be a positive integer")
     return max_rounds
-
-
-def _validate_timeout(timeout_seconds: object) -> float | None:
-    if timeout_seconds is None:
-        return None
-    if isinstance(timeout_seconds, bool) or not isinstance(
-        timeout_seconds, (int, float)
-    ):
-        raise ValueError(
-            "timeout_seconds must be a finite positive number or None"
-        )
-
-    try:
-        timeout = float(timeout_seconds)
-    except OverflowError as error:
-        raise ValueError(
-            "timeout_seconds must be a finite positive number or None"
-        ) from error
-    if not math.isfinite(timeout) or timeout <= 0:
-        raise ValueError(
-            "timeout_seconds must be a finite positive number or None"
-        )
-    return timeout
 
 
 def _error_result(call: ToolCall, message: str) -> ToolResultMessage:
@@ -121,10 +96,10 @@ async def _run_tool_call(
 class AgentRun:
     """The outcome of one run of the agent loop.
 
-    ``status`` is set only when a bound stopped the run. The model ending the
-    run is not a status: the caller reads ``messages[-1].stop_reason`` for
-    that. ``rounds`` counts completed model calls, and equals the number of
-    assistant messages in ``messages``.
+    ``status`` is set only when the round limit stopped the run. The model
+    ending the run is not a status: the caller reads
+    ``messages[-1].stop_reason`` for that. ``rounds`` counts completed model
+    calls, and equals the number of assistant messages in ``messages``.
 
     A run that ends with ``"limitReached"`` may have ``messages`` ending in
     an assistant message whose tool calls were never executed: those calls
@@ -175,9 +150,9 @@ async def run_agent_loop(
     tools: Sequence[AgentTool] = (),
     complete: Callable[[Context], Awaitable[AssistantMessage]],
     max_rounds: int = 8,
-    timeout_seconds: float | None = None,
 ) -> AgentRun:
-    """Run model/tool rounds until the model ends the run or a bound is hit.
+    """Run model/tool rounds until the model ends the run or the round limit
+    is hit.
 
     ``messages`` holds the initial conversation. ``complete`` is any async
     callable that takes a ``Context`` and returns an ``AssistantMessage``.
@@ -188,7 +163,7 @@ async def run_agent_loop(
     Every round builds a ``Context`` from the whole history. A reply whose
     ``stop_reason`` is ``"toolUse"`` must carry at least one tool call: the
     reply is kept, one result message per call is appended after it, and the
-    model is called again, unless the round budget is already spent. Any
+    model is called again, unless the round limit is already reached. Any
     ``stop_reason`` other than ``"pending"`` and ``"toolUse"`` ends the run
     with that reply unchanged.
 
@@ -197,49 +172,40 @@ async def run_agent_loop(
     so such a reply never increments ``rounds`` and never enters
     ``messages``. A ``"toolUse"`` reply is recorded first, like any other
     reply; its tool calls are extracted afterwards, and one that carries none
-    raises ``AgentRunError`` at that point, before the round budget is
+    raises ``AgentRunError`` at that point, before the round limit is
     checked, so a malformed tool reply is never reported as
     ``"limitReached"``.
 
     ``max_rounds`` counts model calls: the first call is round one, and all
-    tool calls in one reply belong to that round. ``timeout_seconds`` bounds
-    the wall-clock time of the whole run and is checked before each model
-    request. A reply that ends the run normally is honoured even on the last
-    allowed round. A ``"toolUse"`` reply carrying tool calls on that round is
-    not executed: the run stops with ``"limitReached"`` and the reply is kept
-    as received, so ``messages`` can end with unexecuted tool calls that have
-    no result messages. A single model request or tool call is not
-    interrupted mid-round; bounding those is the injected callable's job.
+    tool calls in one reply belong to that round. A reply that ends the run
+    normally is honoured even on the last allowed round. A ``"toolUse"``
+    reply carrying tool calls on that round is not executed: the run stops
+    with ``"limitReached"`` and the reply is kept as received, so ``messages``
+    can end with unexecuted tool calls that have no result messages.
+
+    The loop applies no wall-clock budget across rounds; ``max_rounds`` is
+    the only bound it enforces.
 
     A tool call whose ``arguments_error`` is set is not executed; it gets a
     failed result carrying the parse error. A call naming an unknown tool
     gets a failed result as well. Both keep the original ``tool_call_id``.
 
-    Returns an ``AgentRun``. A run that hit a bound carries that bound as
-    ``status``: ``"limitReached"`` for ``max_rounds`` and ``"timedOut"`` for
-    the deadline. A run the model ended carries no status: the caller reads
-    ``messages[-1].stop_reason`` instead. Bounds are never reported as
-    silently successful runs.
+    Returns an ``AgentRun``. A run stopped by the round limit carries
+    ``"limitReached"`` as ``status``. A run the model ended carries no
+    status: the caller reads ``messages[-1].stop_reason`` instead. Hitting
+    the round limit is never reported as a silently successful run.
     """
     tool_list = _bind_tools(tools)
     definitions = tuple(tool.definition for tool in tool_list)
     tools_by_name = {tool.definition.name: tool for tool in tool_list}
 
     round_limit = _validate_max_rounds(max_rounds)
-    timeout = _validate_timeout(timeout_seconds)
-    if timeout is None:
-        deadline = None
-    else:
-        deadline = monotonic() + timeout
 
     history: list[Message] = list(messages)
     produced: list[Message] = []
     rounds = 0
 
     while True:
-        if deadline is not None and monotonic() >= deadline:
-            return AgentRun("timedOut", tuple(produced), rounds)
-
         context = Context(
             messages=history,
             system_prompt=system_prompt,
