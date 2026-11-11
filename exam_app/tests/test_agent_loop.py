@@ -79,7 +79,7 @@ class RunAgentLoopTests(unittest.IsolatedAsyncioTestCase):
         )
         complete = mock.AsyncMock(side_effect=(first_reply, final_reply))
 
-        produced = await run_agent_loop(
+        run = await run_agent_loop(
             (initial,),
             system_prompt="你是教材助教。",
             tools=(tool,),
@@ -98,7 +98,7 @@ class RunAgentLoopTests(unittest.IsolatedAsyncioTestCase):
 
         tool_result = second_context.messages[2]
         self.assertIsInstance(tool_result, ToolResultMessage)
-        self.assertIs(tool_result, produced[1])
+        self.assertIs(tool_result, run.messages[1])
         self.assertEqual(tool_result.tool_call_id, "call-1")
         self.assertEqual(tool_result.tool_name, "get_section_text")
         self.assertIs(tool_result.is_error, False)
@@ -111,9 +111,11 @@ class RunAgentLoopTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(context.tools, (tool.definition,))
             self.assertEqual(context.system_prompt, "你是教材助教。")
 
-        self.assertEqual(len(produced), 3)
-        self.assertIs(produced[0], first_reply)
-        self.assertIs(produced[2], final_reply)
+        self.assertIsNone(run.status)
+        self.assertEqual(run.rounds, 2)
+        self.assertEqual(len(run.messages), 3)
+        self.assertIs(run.messages[0], first_reply)
+        self.assertIs(run.messages[2], final_reply)
 
     async def test_returns_a_failed_result_for_unparseable_arguments(
         self,
@@ -145,7 +147,7 @@ class RunAgentLoopTests(unittest.IsolatedAsyncioTestCase):
         )
         complete = mock.AsyncMock(side_effect=(first_reply, final_reply))
 
-        produced = await run_agent_loop(
+        run = await run_agent_loop(
             (initial,),
             tools=(tool,),
             complete=complete,
@@ -161,16 +163,129 @@ class RunAgentLoopTests(unittest.IsolatedAsyncioTestCase):
 
         tool_result = second_context.messages[2]
         self.assertIsInstance(tool_result, ToolResultMessage)
-        self.assertIs(tool_result, produced[1])
+        self.assertIs(tool_result, run.messages[1])
         self.assertEqual(tool_result.tool_call_id, "call-2")
         self.assertEqual(tool_result.tool_name, "get_section_text")
         self.assertIs(tool_result.is_error, True)
         self.assertEqual(len(tool_result.content), 1)
         self.assertIn(parse_error, tool_result.content[0].text)
 
-        self.assertEqual(len(produced), 3)
-        self.assertIs(produced[0], first_reply)
-        self.assertIs(produced[2], final_reply)
+        self.assertIsNone(run.status)
+        self.assertEqual(run.rounds, 2)
+        self.assertEqual(len(run.messages), 3)
+        self.assertIs(run.messages[0], first_reply)
+        self.assertIs(run.messages[2], final_reply)
+
+    async def test_skips_tool_calls_on_the_last_allowed_round(self) -> None:
+        handler = mock.AsyncMock(
+            return_value=ToolExecutionResult(
+                content=(TextContent(text=SECTION_TEXT),),
+            )
+        )
+        tool = AgentTool(definition=section_definition(), handler=handler)
+        initial = UserMessage(
+            content=(TextContent(text="读取教材 3.2 节并总结。"),)
+        )
+        replies = tuple(
+            assistant_message(
+                (
+                    ToolCall(
+                        id=f"call-{index}",
+                        name="get_section_text",
+                        arguments={"section_id": "3.2"},
+                    ),
+                ),
+                "toolUse",
+            )
+            for index in range(1, 3)
+        )
+        complete = mock.AsyncMock(side_effect=replies)
+
+        run = await run_agent_loop(
+            (initial,),
+            tools=(tool,),
+            complete=complete,
+            max_rounds=2,
+        )
+
+        self.assertEqual(complete.await_count, 2)
+        handler.assert_awaited_once_with({"section_id": "3.2"})
+
+        self.assertEqual(run.status, "limitReached")
+        self.assertEqual(run.rounds, 2)
+        self.assertEqual(len(run.messages), 3)
+
+        self.assertIs(run.messages[0], replies[0])
+        tool_result = run.messages[1]
+        self.assertIsInstance(tool_result, ToolResultMessage)
+        self.assertEqual(tool_result.tool_call_id, "call-1")
+        self.assertIs(run.messages[2], replies[1])
+
+    async def test_returns_timed_out_before_the_follow_up_model_call(
+        self,
+    ) -> None:
+        handler = mock.AsyncMock(
+            return_value=ToolExecutionResult(
+                content=(TextContent(text=SECTION_TEXT),),
+            )
+        )
+        tool = AgentTool(definition=section_definition(), handler=handler)
+        initial = UserMessage(
+            content=(TextContent(text="读取教材 3.2 节并总结。"),)
+        )
+        first_reply = assistant_message(
+            (
+                ToolCall(
+                    id="call-1",
+                    name="get_section_text",
+                    arguments={"section_id": "3.2"},
+                ),
+            ),
+            "toolUse",
+        )
+        complete = mock.AsyncMock(return_value=first_reply)
+
+        with mock.patch(
+            "book_exam.agent.loop.monotonic",
+            side_effect=(0.0, 0.0, 100.0),
+        ):
+            run = await run_agent_loop(
+                (initial,),
+                tools=(tool,),
+                complete=complete,
+                timeout_seconds=10.0,
+            )
+
+        self.assertEqual(run.status, "timedOut")
+        self.assertEqual(run.rounds, 1)
+        self.assertEqual(complete.await_count, 1)
+        self.assertEqual(len(run.messages), 2)
+        self.assertIs(run.messages[0], first_reply)
+        self.assertIsInstance(run.messages[1], ToolResultMessage)
+
+    async def test_rejects_invalid_run_bounds(self) -> None:
+        initial = UserMessage(content=(TextContent(text="读取教材。"),))
+        complete = mock.AsyncMock()
+
+        for value in (0, -1, True, 1.5, "8"):
+            with self.subTest(max_rounds=value):
+                with self.assertRaises(ValueError):
+                    await run_agent_loop(
+                        (initial,),
+                        complete=complete,
+                        max_rounds=value,
+                    )
+
+        for value in (0, -1.0, float("inf"), "10"):
+            with self.subTest(timeout_seconds=value):
+                with self.assertRaises(ValueError):
+                    await run_agent_loop(
+                        (initial,),
+                        complete=complete,
+                        timeout_seconds=value,
+                    )
+
+        complete.assert_not_awaited()
 
 
 if __name__ == "__main__":

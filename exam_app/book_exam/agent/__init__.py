@@ -7,7 +7,7 @@ from .deepseek_response import (
     DeepSeekResponseError,
     parse_deepseek_response,
 )
-from .loop import run_agent_loop
+from .loop import AgentRun, AgentRunError, AgentRunStatus, run_agent_loop
 from .messages import (
     AssistantMessage,
     ImageContent,
@@ -29,6 +29,9 @@ from .tools import (
 )
 
 __all__ = [
+    "AgentRun",
+    "AgentRunError",
+    "AgentRunStatus",
     "AgentTool",
     "AssistantMessage",
     "Context",
