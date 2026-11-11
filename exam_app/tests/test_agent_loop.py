@@ -2,6 +2,7 @@ import unittest
 from unittest import mock
 
 from book_exam.agent import (
+    AgentRunError,
     AgentTool,
     AssistantMessage,
     Context,
@@ -262,6 +263,77 @@ class RunAgentLoopTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(run.messages), 2)
         self.assertIs(run.messages[0], first_reply)
         self.assertIsInstance(run.messages[1], ToolResultMessage)
+
+    async def test_rejects_a_pending_reply_before_it_is_recorded(self) -> None:
+        handler = mock.AsyncMock()
+        tool = AgentTool(definition=section_definition(), handler=handler)
+        initial = UserMessage(
+            content=(TextContent(text="读取教材 3.2 节并总结。"),)
+        )
+        incomplete_reply = assistant_message(
+            (TextContent(text="3.2 节介绍死锁"),),
+            "pending",
+        )
+        complete = mock.AsyncMock(return_value=incomplete_reply)
+
+        with self.assertRaises(AgentRunError) as caught:
+            await run_agent_loop(
+                (initial,),
+                tools=(tool,),
+                complete=complete,
+            )
+
+        self.assertIn("pending", str(caught.exception))
+        self.assertEqual(complete.await_count, 1)
+        handler.assert_not_awaited()
+
+    async def test_rejects_a_tool_use_reply_without_tool_calls(self) -> None:
+        handler = mock.AsyncMock()
+        tool = AgentTool(definition=section_definition(), handler=handler)
+        initial = UserMessage(
+            content=(TextContent(text="读取教材 3.2 节并总结。"),)
+        )
+        malformed_reply = assistant_message(
+            (TextContent(text="我先读一下 3.2 节。"),),
+            "toolUse",
+        )
+        complete = mock.AsyncMock(return_value=malformed_reply)
+
+        with self.assertRaises(AgentRunError) as caught:
+            await run_agent_loop(
+                (initial,),
+                tools=(tool,),
+                complete=complete,
+            )
+
+        self.assertIn("toolUse", str(caught.exception))
+        self.assertIn("tool call", str(caught.exception))
+        self.assertEqual(complete.await_count, 1)
+        handler.assert_not_awaited()
+
+    async def test_rejects_empty_tool_use_on_the_last_round(self) -> None:
+        handler = mock.AsyncMock()
+        tool = AgentTool(definition=section_definition(), handler=handler)
+        initial = UserMessage(
+            content=(TextContent(text="读取教材 3.2 节并总结。"),)
+        )
+        malformed_reply = assistant_message(
+            (TextContent(text="我先读一下 3.2 节。"),),
+            "toolUse",
+        )
+        complete = mock.AsyncMock(return_value=malformed_reply)
+
+        with self.assertRaises(AgentRunError) as caught:
+            await run_agent_loop(
+                (initial,),
+                tools=(tool,),
+                complete=complete,
+                max_rounds=1,
+            )
+
+        self.assertIn("toolUse", str(caught.exception))
+        self.assertEqual(complete.await_count, 1)
+        handler.assert_not_awaited()
 
     async def test_rejects_invalid_run_bounds(self) -> None:
         initial = UserMessage(content=(TextContent(text="读取教材。"),))

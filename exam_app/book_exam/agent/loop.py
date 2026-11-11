@@ -21,7 +21,7 @@ _STATUS_VALUES = frozenset({"limitReached", "timedOut"})
 
 
 class AgentRunError(ValueError):
-    """Raised when an agent run value is structurally invalid."""
+    """Raised when a run value or a model reply is structurally invalid."""
 
 
 def _bind_tools(tools: Sequence[AgentTool]) -> tuple[AgentTool, ...]:
@@ -186,21 +186,30 @@ async def run_agent_loop(
     ``AgentTool`` through ``execute``.
 
     Every round builds a ``Context`` from the whole history. A reply whose
-    ``stop_reason`` is ``"toolUse"`` is kept, one result message per tool
-    call is appended after it, and the model is called again, unless the
-    round budget is already spent. Any other ``stop_reason`` ends the run
-    with that reply unchanged; so does a ``"toolUse"`` reply that contains
-    no tool call.
+    ``stop_reason`` is ``"toolUse"`` must carry at least one tool call: the
+    reply is kept, one result message per call is appended after it, and the
+    model is called again, unless the round budget is already spent. Any
+    ``stop_reason`` other than ``"pending"`` and ``"toolUse"`` ends the run
+    with that reply unchanged.
+
+    A ``"pending"`` reply is unfinished and raises ``AgentRunError`` before
+    the reply is recorded: that check runs right after ``complete`` returns,
+    so such a reply never increments ``rounds`` and never enters
+    ``messages``. A ``"toolUse"`` reply is recorded first, like any other
+    reply; its tool calls are extracted afterwards, and one that carries none
+    raises ``AgentRunError`` at that point, before the round budget is
+    checked, so a malformed tool reply is never reported as
+    ``"limitReached"``.
 
     ``max_rounds`` counts model calls: the first call is round one, and all
     tool calls in one reply belong to that round. ``timeout_seconds`` bounds
     the wall-clock time of the whole run and is checked before each model
-    request. A reply that ends the run is honoured even on the last allowed
-    round. A ``"toolUse"`` reply carrying tool calls on that round is not
-    executed: the run stops with ``"limitReached"`` and the reply is kept as
-    received, so ``messages`` can end with unexecuted tool calls that have no
-    result messages. A single model request or tool call is not interrupted
-    mid-round; bounding those is the injected callable's job.
+    request. A reply that ends the run normally is honoured even on the last
+    allowed round. A ``"toolUse"`` reply carrying tool calls on that round is
+    not executed: the run stops with ``"limitReached"`` and the reply is kept
+    as received, so ``messages`` can end with unexecuted tool calls that have
+    no result messages. A single model request or tool call is not
+    interrupted mid-round; bounding those is the injected callable's job.
 
     A tool call whose ``arguments_error`` is set is not executed; it gets a
     failed result carrying the parse error. A call naming an unknown tool
@@ -237,6 +246,11 @@ async def run_agent_loop(
             tools=definitions,
         )
         reply = await complete(context)
+        if reply.stop_reason == "pending":
+            raise AgentRunError(
+                "complete returned a pending reply; an unfinished reply "
+                "cannot be recorded"
+            )
         rounds += 1
         produced.append(reply)
         history.append(reply)
@@ -248,7 +262,9 @@ async def run_agent_loop(
             block for block in reply.content if isinstance(block, ToolCall)
         )
         if not calls:
-            return AgentRun(None, tuple(produced), rounds)
+            raise AgentRunError(
+                "stop_reason 'toolUse' requires at least one tool call"
+            )
 
         if rounds >= round_limit:
             return AgentRun("limitReached", tuple(produced), rounds)
